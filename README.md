@@ -255,9 +255,8 @@ When transferring the library to a microcontroller, only the light_nmea folder i
 ```console
 light-nmea-mp/
 |-- LICENSE                  # GNU GPL v3.0 License
-|-- README.md                # Project documentation (Russian)
-|-- README_EN.md             # Project documentation (English)
-|-- README.pdf               # PDF version of documentation
+|-- README_RU.md             # Project documentation (Russian)
+|-- README.md                # Project documentation (English)
 |
 |-- light_nmea/              # Isolated parser package (copy to MCU)
 |   |-- __init__.py          # Python package marker
@@ -278,8 +277,9 @@ light-nmea-mp/
 |   |-- benchmark/           # Benchmark folder
 |   |   |-- benchmark_pynmea2.py     # Comparison with pynmea2 (CPython)
 |   |   |-- benchmark_pynmeagps.py   # Comparison with pynmeagps (CPython)
-|   |   |-- benchmark_micropygps.py  # Comparison with micropyGPS (CPython)
+|   |   |-- benchmark_micropygps.py  # Comparison with micropyGPS (MPY/CPython)
 |   |   |-- benchmark_adafruitgps.py # Comparison with adafruit_gps (CPython)
+|   |   |-- bench_utils.py   
 |   |   |-- busio.py         # Mock module for CPython
 |   |   |-- micropython.py   # Mock module for CPython
 |   |   +-- readme.txt       # Benchmark description

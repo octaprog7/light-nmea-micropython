@@ -104,11 +104,11 @@ light_nmea создан как альтернатива:
 
 ### NMEA 0183 v3.x (стандартные)
 
-| Сообщение | Описание | Поддержка |
-|-----------|----------|-----------|
-| `$GPRMC` / `$GNRMC` | Recommended Minimum Navigation Information | Полный парсинг |
-| `$GPGGA` / `$GNGGA` | Global Positioning System Fix Data | Полный парсинг |
-| `$GPGSV` | Satellites in View | Принимается, но не парсится |
+| Сообщение           | Описание                                   | Поддержка                   |
+|---------------------|--------------------------------------------|-----------------------------|
+| `$GPRMC` / `$GNRMC` | Recommended Minimum Navigation Information | Полный парсинг              |
+| `$GPGGA` / `$GNGGA` | Global Positioning System Fix Data         | Полный парсинг              |
+| `$GPGSV`            | Satellites in View                         | Принимается, но не парсится |
 
 ### NMEA 0183 v4.10+ (новые Talker ID)
 
@@ -282,9 +282,9 @@ while True:
 ```console
 light-nmea-mp/
 |-- LICENSE                  # Лицензия GNU GPL v3.0
-|-- README.md                # Документация проекта (RU)
-|-- README_EN.md             # Документация проекта (EN)
-|-- README.pdf               # PDF-версия документации
+|-- README_RU.md             # Документация проекта (RU)
+|-- README.md                # Документация проекта (EN)
+|-- run_all_benchmarks.py    # Последовательный запуск всех бенчей 
 |
 |-- light_nmea/              # Изолированный пакет парсера (копировать на МК)
 |   |-- init.py          # Маркер пакета Python
@@ -305,8 +305,9 @@ light-nmea-mp/
 |   |-- benchmark/           # Папка с бенчмарками
 |   |   |-- benchmark_pynmea2.py     # Сравнение с pynmea2 (CPython)
 |   |   |-- benchmark_pynmeagps.py   # Сравнение с pynmeagps (CPython)
-|   |   |-- benchmark_micropygps.py  # Сравнение с micropyGPS (CPython)
+|   |   |-- benchmark_micropygps.py  # Сравнение с micropyGPS (MPY/CPython)
 |   |   |-- benchmark_adafruitgps.py # Сравнение с adafruit_gps (CPython)
+|   |   |-- bench_utils.py   # 
 |   |   |-- busio.py         # Mock-модуль для CPython
 |   |   |-- micropython.py   # Mock-модуль для CPython
 |   |   +-- readme.txt       # Описание бенчмарков
