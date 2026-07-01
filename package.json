@@ -1,0 +1,30 @@
+{
+  "package": {
+    "name": "light-nmea-micropython",
+    "version": "1.0.1",
+    "author": "octaprog7"
+  },
+  "urls": [
+    [
+      "light_nmea/__init__.py",
+      "github:octaprog7/light-nmea-micropython/light_nmea/__init__.py"
+    ],
+    [
+      "light_nmea/conv_to_hrf.py",
+      "github:octaprog7/light-nmea-micropython/light_nmea/conv_to_hrf.py"
+    ],
+    [
+      "light_nmea/nmea0183_parser.py",
+      "github:octaprog7/light-nmea-micropython/light_nmea/nmea0183_parser.py"
+    ],
+    [
+      "light_nmea/nmea0183_stats.py",
+      "github:octaprog7/light-nmea-micropython/light_nmea/nmea0183_stats.py"
+    ],
+    [
+      "light_nmea/nmea0183_stream.py",
+      "github:octaprog7/light-nmea-micropython/light_nmea/nmea0183_stream.py"
+    ]
+  ],
+  "deps": []
+}
