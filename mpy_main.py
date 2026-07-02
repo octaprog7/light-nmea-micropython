@@ -21,6 +21,7 @@ from machine import UART, Pin, RTC
 from light_nmea.nmea0183_parser import LightNMEA
 from light_nmea.nmea0183_stats import GPSStats
 from light_nmea.nmea0183_stream import NMEAStreamReader
+from light_nmea.conv_to_hrf import to_format
 
 # === Конфигурация ===
 UART_ID = const(0)
@@ -33,7 +34,7 @@ UART_BUFFER_SIZE = const(512)
 _MAX_NMEA_LENGTH = const(82)  # Стандарт NMEA-0183: макс. длина пакета
 _MAX_NMEA_LENGTH_EXTENDED = const(256)  # Для GSV, PUBX, PQTM
 GC_CALL_LIMIT = const(100)
-STATS_PRINT_LIMIT = const(100)
+STATS_PRINT_LIMIT = const(150)
 
 # Вывод данных пакета в консоль при наличии фикса
 print_packet_info: bool = True
@@ -78,32 +79,10 @@ def _is_date_valid(date_bytes: bytes) -> bool:
         return False
 
 
-def _print_packet_data() -> None:
+def _print_packet_data(my_parser) -> None:
     """Выводит данные пакета в консоль (только при наличии фикса)."""
     print("--- Пакет с фиксом ---")
-
-    # Координаты
-    if parser.has_coordinates():
-        print(f"  Широта:   {parser.latitude:.6f}°")
-        print(f"  Долгота:  {parser.longitude:.6f}°")
-
-    # Навигационные данные (2D)
-    if parser.has_navigation():
-        print(f"  Скорость: {parser.speed:.1f} км/ч")
-        print(f"  Курс:     {parser.course:.1f}°")
-
-    # 3D фикс
-    if parser.has_3d_fix():
-        print(f"  Высота:   {parser.altitude:.1f} м")
-
-    # Время и дата
-    if parser.time:
-        print(f"  Время:    {parser.time.decode('ascii')} UTC")
-    if parser.date:
-        print(f"  Дата:     {parser.date.decode('ascii')}")
-
-    # Спутники
-    print(f"  Спутники: {parser.satellites}")
+    print(to_format(my_parser))
     print("--------------------")
 
 
@@ -155,6 +134,7 @@ _RTC_SYNC_MAX_ATTEMPTS = const(5)
 rtc_sync_attempts = 0
 
 try:
+    last_time_from_gnss = b""
     while True:
         # чтение через NMEAStreamReader
         processed = reader.read_available(parser, stats_callback)
@@ -163,11 +143,12 @@ try:
             # Обработка координат
             if parser.has_coordinates():
                 # Синхронизация RTC при первом фиксе
-                if not rtc_synced and parser.time and _is_date_valid(parser.date):
+                par_time = parser.time
+                if not rtc_synced and par_time and _is_date_valid(parser.date):
                     try:
                         parser.sync_hardware_rtc(rtc)
                         rtc_synced = True
-                        print(f"RTC синхронизирован: {parser.date} {parser.time}")
+                        print(f"RTC синхронизирован: {parser.date} {par_time}")
                     except Exception as e:
                         rtc_sync_attempts += 1
                         print(f"Ошибка синхронизации RTC ({rtc_sync_attempts}/{_RTC_SYNC_MAX_ATTEMPTS}): {e}")
@@ -175,9 +156,11 @@ try:
                             rtc_synced = True  # Сдаюсь после _RTC_SYNC_MAX_ATTEMPTS попыток
                             print(f"RTC недоступен после {_RTC_SYNC_MAX_ATTEMPTS} попыток, синхронизация отключена!")
 
-                # Вывод данных пакета при наличии фикса
-                if print_packet_info and parser.valid:
-                    _print_packet_data()
+                if par_time != last_time_from_gnss:
+                    # Вывод данных пакета при наличии фикса
+                    if print_packet_info:
+                        _print_packet_data(parser)
+                last_time_from_gnss = par_time
 
             # Вывод статистики
             if stats.total % STATS_PRINT_LIMIT == 0:
@@ -194,7 +177,7 @@ try:
 
         # Пауза только если нет данных
         if processed == 0:
-            time.sleep_ms(1)
+            time.sleep_ms(10)
 
 except KeyboardInterrupt:
     print("\nОстановка...")
