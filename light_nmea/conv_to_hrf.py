@@ -18,6 +18,17 @@
 Human Readable Format (HRF): TXT, CSV, JSON."""
 
 
+try:
+    from micropython import native
+except ImportError:
+    def native(func): return func
+
+
+FMT_TXT = 0
+FMT_CSV = 1
+FMT_JSON = 2
+FMT_COMPACT = 3
+
 # Константы для TXT/Compact (без кавычек)
 _SATS = "satellites"
 _LAT = "latitude"
@@ -39,7 +50,42 @@ _JSON_TIME = f'"{_TIME}"'
 _JSON_DATE = f'"{_DATE}"'
 
 
-def to_txt(parser) -> str:
+# === Вспомогательные функции форматирования ===
+@native
+def _fmt_dt(value, is_time: bool = True) -> str:
+    """Форматирует время или дату из NMEA в человекочитаемый вид.
+
+    Args:
+        value: bytes или str с временем (HHMMSS.SS) или датой (DDMMYY)
+        is_time: True для времени, False для даты
+
+    Returns:
+        Отформатированная строка:
+        - Время: HH:MM:SS.SS
+        - Дата: DD.MM.YYYY
+    """
+    if not value:
+        return ""
+
+    val = value
+    # Преобразую bytes/bytearray в str
+    if isinstance(value, (bytes, bytearray)):
+        val = value.decode('ascii')
+
+    six = 6
+    if is_time:
+        # Форматирование времени: HHMMSS.SS -> HH:MM:SS.SS
+        if len(val) < six:
+            return val
+        return f"{val[0:2]}:{val[2:4]}:{val[4:]}"
+
+    # Форматирование даты: DDMMYY -> DD.MM.YYYY
+    if len(val) != six:
+        return val
+    return f"{val[0:2]}.{val[2:4]}.20{val[4:six]}"
+
+
+def _to_txt(parser) -> str:
     """Преобразует данные парсера в человекочитаемый формат.
 
     Args:
@@ -65,14 +111,14 @@ def to_txt(parser) -> str:
 
     # Время и дата
     if parser.time:
-        lines.append(f"{_TIME}: {parser.time.decode('ascii')} UTC")
+        lines.append(f"{_TIME}: {_fmt_dt(parser.time)} UTC")
     if parser.date:
-        lines.append(f"{_DATE}: {parser.date.decode('ascii')}")
+        lines.append(f"{_DATE}: {_fmt_dt(value=parser.date, is_time=False)}")
 
     return '\n'.join(lines)
 
 
-def to_csv(parser) -> str:
+def _to_csv(parser) -> str:
     """Преобразует данные парсера в CSV-строку.
 
     Формат: valid,sat,lat,lon,speed,course,alt,time,date
@@ -91,12 +137,12 @@ def to_csv(parser) -> str:
         f"{parser.speed if parser.speed is not None else ''},"
         f"{parser.course if parser.course is not None else ''},"
         f"{parser.altitude if parser.altitude is not None else ''},"
-        f"{parser.time.decode('ascii') if parser.time else ''},"
-        f"{parser.date.decode('ascii') if parser.date else ''}"
+        f"{_fmt_dt(parser.time) if parser.time else ''},"
+        f"{_fmt_dt(value=parser.date, is_time=False) if parser.date else ''}"
     )
 
 
-def to_json(parser) -> str:
+def _to_json(parser) -> str:
     """Преобразует данные парсера в JSON-строку.
 
     Работает без ujson/json модулей.
@@ -125,14 +171,14 @@ def to_json(parser) -> str:
 
     # Время и дата
     if parser.time:
-        parts.append(f'{_JSON_TIME}:"{parser.time.decode("ascii")}"')
+        parts.append(f'{_JSON_TIME}:"{_fmt_dt(parser.time)}"')
     if parser.date:
-        parts.append(f'{_JSON_DATE}:"{parser.date.decode("ascii")}"')
+        parts.append(f'{_JSON_DATE}:"{_fmt_dt(value=parser.date, is_time=False)}"')
 
     return '{' + ','.join(parts) + '}'
 
 
-def to_compact(parser) -> str:
+def _to_compact(parser) -> str:
     """Компактный однострочный формат для логирования.
 
     Args:
@@ -155,6 +201,16 @@ def to_compact(parser) -> str:
         parts.append(f"{_ALTITUDE}={parser.altitude:.1f}")
 
     if parser.time:
-        parts.append(f"{_TIME}={parser.time.decode('ascii')}")
+        parts.append(f"{_TIME}={_fmt_dt(parser.time)}")
+
+    if parser.date:
+        parts.append(f"{_DATE}={_fmt_dt(parser.date, is_time=False)}")
 
     return ' '.join(parts)
+
+
+_FMT_FUNC = _to_txt, _to_csv, _to_json, _to_compact
+
+@native
+def to_format(parser, id_format: int = FMT_TXT) -> str:
+    return _FMT_FUNC[id_format](parser)
