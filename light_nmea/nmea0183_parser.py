@@ -223,23 +223,31 @@ def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> int | tuple:
 
 @native
 def _parse_degrees(raw_bytes: bytes, direction_bytes: bytes) -> float | None:
-    """Парсинг координат."""
+    """Парсинг координат: find() + memoryview."""
     if not raw_bytes:
         return None
+
+    # Быстрый поиск точки '.' на уровне Си
+    dot_idx = raw_bytes.find(b'.')
+    # Создаю memoryview
+    mv = memoryview(raw_bytes)
     try:
-        dot_idx = raw_bytes.find(b'.')
+        # Если точка не найдена то последние 2 байта это угловые минуты
         if dot_idx == -1:
-            degrees = float(raw_bytes[:-2])
-            minutes = float(raw_bytes[-2:])
+            degrees = float(mv[:-2])
+            minutes = float(mv[-2:])
         else:
-            degrees = float(raw_bytes[:dot_idx - 2])
-            minutes = float(raw_bytes[dot_idx - 2:])
-        decimal = degrees + (minutes * _MINUTES_TO_DEGREES)
-        if direction_bytes in _NEGATIVE_DIRS:
-            decimal = -decimal
-        return decimal
-    except ValueError:
+            degrees = float(mv[:dot_idx - 2])
+            minutes = float(mv[dot_idx - 2:])
+    except (ValueError, TypeError):
         return None
+
+    decimal = degrees + (minutes * _MINUTES_TO_DEGREES)
+
+    if direction_bytes in _NEGATIVE_DIRS:
+        decimal = -decimal
+
+    return decimal
 
 
 @native
