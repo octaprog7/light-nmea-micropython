@@ -1,49 +1,60 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0
-# Скрипт для многократного запуска теста и анализа тренда памяти
+
+# 1. Автоматически определяем корневую папку проекта
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+# Если скрипт лежит в tests/, поднимаемся на уровень вверх
+if [[ "$SCRIPT_DIR" == */tests ]]; then
+    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+else
+    PROJECT_ROOT="$SCRIPT_DIR"
+fi
+
+# 2. Активация виртуального окружения
+if [ -f "$PROJECT_ROOT/.venv/bin/activate" ]; then
+    source "$PROJECT_ROOT/.venv/bin/activate"
+fi
 
 RUNS=10
 PAUSE=2
+MAIN_SCRIPT="$PROJECT_ROOT/main.py"
+
+# Проверка, что main.py существует
+if [ ! -f "$MAIN_SCRIPT" ]; then
+    echo "ОШИБКА: Файл $MAIN_SCRIPT не найден!"
+    exit 1
+fi
 
 echo "======================================================================"
 echo "МНОГОКРАТНЫЙ ЗАПУСК ТЕСТА ($RUNS прогонов)"
+echo "Запускаем: $MAIN_SCRIPT"
 echo "======================================================================"
 echo ""
 
-# Заголовки таблицы
 printf "%-5s | %-10s | %-10s | %-10s | %-12s\n" \
     "Прогон" "До [КБ]" "После [КБ]" "Дельта" "Скорость"
 echo "----------------------------------------------------------------------"
 
-prev_delta=""
 deltas=()
 
 for i in $(seq 1 $RUNS); do
-    # Запуск теста и захват вывода
-    output=$(python3 main.py 2>&1)
-    
-    # Парсим значения
-    mem_before=$(echo "$output" | grep -oP "до теста \[КБ\]: \K[0-9.]+")
-    mem_after=$(echo "$output" | grep -oP "после теста \[КБ\]: \K[0-9.]+")
-    delta=$(echo "$output" | grep -oP "выросло на \K[0-9.]+")
-    speed=$(echo "$output" | grep -oP "Скорость обработки:\s*\K[0-9]+")
-    
-    # Если дельта не "выросло", проверяем "уменьшилось"
-    if [ -z "$delta" ]; then
-        delta=$(echo "$output" | grep -oP "уменьшилось на \K[0-9.]+")
-        if [ -n "$delta" ]; then
-            delta="-$delta"
-        fi
+    output=$(python3 "$MAIN_SCRIPT" 2>&1)
+
+    # Парсинг
+    mem_before=$(echo "$output" | grep "Используемая память до теста" | grep -oE '[0-9]+' | tail -1)
+    mem_after=$(echo "$output" | grep "Используемая память после теста" | grep -oE '[0-9]+' | tail -1)
+    delta=$(echo "$output" | grep "Результат:" | grep -oE '[0-9]+' | tail -1)
+    speed=$(echo "$output" | grep "Скорость обработки" | grep -oE '[0-9]+' | tail -1)
+
+    if echo "$output" | grep -q "уменьшилось"; then
+        delta="-$delta"
     fi
-    
-    # Вывод строки таблицы
+
     printf "%-5s | %-10s | %-10s | %-10s | %-12s\n" \
-        "$i" "${mem_before:-N/A}" "${mem_after:-N/A}" "+${delta:-N/A}" "${speed:-N/A}"
-    
-    # Сохраняем дельту для анализа тренда
-    deltas+=("$delta")
-    
-    # Пауза между запусками
+        "$i" "${mem_before:-N/A}" "${mem_after:-N/A}" "+${delta:-N/A}" "${speed:-N/A} п/с"
+
+    deltas+=("${delta:-0}")
+
     if [ $i -lt $RUNS ]; then
         sleep $PAUSE
     fi
@@ -53,11 +64,10 @@ echo "======================================================================"
 echo "АНАЛИЗ ТРЕНДА"
 echo "======================================================================"
 
-# Считаем среднюю дельту
 sum=0
 count=0
 for d in "${deltas[@]}"; do
-    if [ -n "$d" ]; then
+    if [ -n "$d" ] && [ "$d" != "0" ]; then
         sum=$(echo "$sum + $d" | bc)
         count=$((count + 1))
     fi
@@ -68,7 +78,6 @@ if [ $count -gt 0 ]; then
     echo "Средняя дельта за прогон: $avg КБ"
 fi
 
-# Сравниваем первую и последнюю дельту
 first=${deltas[0]}
 last=${deltas[$((RUNS-1))]}
 
@@ -76,7 +85,6 @@ echo "Дельта первого прогона:  +$first КБ"
 echo "Дельта последнего прогона: +$last КБ"
 echo ""
 
-# Интерпретация
 if [ -n "$first" ] && [ -n "$last" ]; then
     diff=$(echo "$last - $first" | bc)
     if (( $(echo "$diff < -50" | bc -l) )); then
