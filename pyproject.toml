@@ -2,15 +2,18 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["light_nmea"]
+
 [project]
 name = "light-nmea-micropython"
 version = "1.0.1"
-description = "Fast, NMEA 0183 parser for Python and MicroPython"
+description = "Fast NMEA 0183 parser for Python and MicroPython"
 readme = "README.md"
 requires-python = ">=3.7"
 license = {text = "GPL-3.0-or-later"}
 authors = [
-    {name = "octaprog7"}
+    {name = "octaprog7", email = "kolbasilyvasily@yandex.ru"}
 ]
 keywords = ["nmea", "gps", "gnss", "micropython", "parser", "embedded", "zero-allocation"]
 classifiers = [
@@ -25,3 +28,5 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/octaprog7/light-nmea-micropython"
+Repository = "https://github.com/octaprog7/light-nmea-micropython"
+Issues = "https://github.com/octaprog7/light-nmea-micropython/issues"
