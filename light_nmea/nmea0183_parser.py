@@ -273,42 +273,46 @@ class LightNMEA:
     """Парсер NMEA для MicroPython."""
 
     def __init__(self, trust_gga_fix: bool = False, enable_diagnostics: bool = False) -> None:
-        self._parse_buffer = bytearray(_MAX_PACKET_SIZE)
-        #
-        self._trust_gga: bool = trust_gga_fix
-        self._time_buffer: list = len(time.localtime()) * [0]
-        self._comma_pos: bytearray = bytearray(_MAX_COMMAS)
-
-        self.valid: bool = False
-        self.latitude: float | None = None
-        self.longitude: float | None = None
-        self.speed: float | None = None
-        self.course: float | None = None
-        self.altitude: float | None = None
-        self.satellites: int = 0
+        # Внутренние буферы для парсинга
+        self._parse_buffer = bytearray(_MAX_PACKET_SIZE)    # Буфер для копирования входных данных
+        self._time_buffer: list = len(time.localtime()) * [0]  # Буфер для конвертации времени в tuple
+        self._comma_pos: bytearray = bytearray(_MAX_COMMAS) # Позиции запятых в пакете (для быстрого доступа к полям)
+        # Настройки парсера
+        self._trust_gga: bool = trust_gga_fix   # Если True, использовать GGA для установки valid и fix_mode
+        self._enable_diagnostics: bool = enable_diagnostics # Включить счётчики отклонённых пакетов
+        # Основные данные навигации (обновляются из RMC и GGA)
+        self.valid: bool = False    # Флаг фикса (True = есть координаты)
+        self.latitude: float | None = None  # Широта в градусах (десятичные, +N/-S)
+        self.longitude: float | None = None # Долгота в градусах (десятичные, +E/-W)
+        self.speed: float | None = None # Скорость в км/ч (из RMC, поле 7)
+        self.course: float | None = None    # Курс в градусах (0-360°, из RMC, поле 8)
+        self.altitude: float | None = None  # Высота над уровнем моря в метрах (из GGA, поле 9)
+        self.satellites: int = 0    # Количество используемых спутников (из GGA, поле 7)
+        # Временные метки (из RMC)
+        self.time: bytes = b""   # Время UTC в формате HHMMSS.SS (байты)
         # берется из RMC
-        self.time: bytes = b""
-        # берется из RMC
-        self.date: bytes = b""
-        self.constellation = CST_UNKNOWN
+        self.date: bytes = b""  # Дата в формате DDMMYY (байты)
+        # Качество и тип фикса
+        self.constellation = CST_UNKNOWN    # Созвездие спутников (CST_GPS, CST_GLONASS, ...)
         # Горизонтальная точность. Чем меньше, тем лучше!
         # < 1.0 - отличная (< 2.5 м)
         # 1.0-2.0 - хорошая (2.5-5 м)
         # 2.0-5.0 - средняя (5-10 м)
         # 5.0 - плохая (> 10 м)
         self.hdop: float | None = None
-        # Mode indicator из RMC - тип фикса
+        # Тип фикса (из RMC mode indicator или GGA quality)
+        # FIX_AUTONOMOUS, FIX_DGPS, FIX_RTK_FIXED
         self.fix_mode: int | None = None
         # Фильтр по созвездиям (битовая маска). По умолчанию - все разрешены.
         # ConSTellation bit mast
+        # Пример: CST_MASK_GPS | CST_MASK_GLONASS
         self._cst_mask: int = CST_MASK_ALL
-        #
-        self._enable_diagnostics: bool = enable_diagnostics
-        self.reject_crc: int = 0
-        self.reject_unknown_cst: int = 0
-        self.reject_filtered_cst: int = 0
-        self.reject_unknown_msg: int = 0
-        self.reject_too_short: int = 0
+        # Диагностические счётчики (если enable_diagnostics=True)
+        self.reject_crc: int = 0    # Пакетов отклонено: ошибка CRC
+        self.reject_unknown_cst: int = 0    # Пакетов отклонено: неизвестное созвездие
+        self.reject_filtered_cst: int = 0   # Пакетов отклонено: созвездие отфильтровано маской
+        self.reject_unknown_msg: int = 0    # Пакетов отклонено: неизвестное сообщение (не RMC/GGA)
+        self.reject_too_short: int = 0      # Пакетов отклонено: пакет слишком короткий
 
     def reset(self, scope: int = RESET_RMC) -> None:
         """Сброс полей."""
