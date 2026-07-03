@@ -305,7 +305,7 @@ light-nmea-mp/
 |   |-- benchmark/           # Папка с бенчмарками
 |   |   |-- benchmark_pynmea2.py     # Сравнение с pynmea2 (CPython)
 |   |   |-- benchmark_pynmeagps.py   # Сравнение с pynmeagps (CPython)
-|   |   |-- benchmark_micropygps.py  # Сравнение с micropyGPS (MPY/CPython)
+|   |   |-- benchmark_micropygps.py  # Сравнение с micropyGPS (MicroPython/CPython)
 |   |   |-- benchmark_adafruitgps.py # Сравнение с adafruit_gps (CPython)
 |   |   |-- bench_utils.py   # 
 |   |   |-- busio.py         # Mock-модуль для CPython

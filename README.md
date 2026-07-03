@@ -277,7 +277,7 @@ light-nmea-mp/
 |   |-- benchmark/           # Benchmark folder
 |   |   |-- benchmark_pynmea2.py     # Comparison with pynmea2 (CPython)
 |   |   |-- benchmark_pynmeagps.py   # Comparison with pynmeagps (CPython)
-|   |   |-- benchmark_micropygps.py  # Comparison with micropyGPS (MPY/CPython)
+|   |   |-- benchmark_micropygps.py  # Comparison with micropyGPS (MicroPython/CPython)
 |   |   |-- benchmark_adafruitgps.py # Comparison with adafruit_gps (CPython)
 |   |   |-- bench_utils.py   
 |   |   |-- busio.py         # Mock module for CPython
