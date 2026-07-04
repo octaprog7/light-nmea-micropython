@@ -16,12 +16,58 @@
 
 from micropython import const
 
+# Для кроссплатформенной работы с интервалами времени
+try:
+    # MicroPython
+    from time import ticks_ms, ticks_diff
+except ImportError:
+    # CPython
+    import time as _time
+
+    def ticks_ms():
+        """Аналог ticks_ms для CPython (возвращает мс с момента старта)."""
+        return int(_time.monotonic() * 1000)
+
+
+    def ticks_diff(t1, t2):
+        """Аналог ticks_diff для CPython (monotonic не переполняется)."""
+        return t1 - t2
+
+
+# Типы NMEA сообщений
+# для анти-спам фильтра
+_MSG_UNKNOWN = 0
+_MSG_GGA = 1
+_MSG_RMC = 2
+
+# Постоянные для определения типа сообщения
+_GGA_SUB = b"GGA"
+_RMC_SUB = b"RMC"
+
 _MAX_CHUNK = const(512)
 _LINE_BUFFER_SIZE = const(256)
 _DOLLAR = const(36)
 _CR = const(13)
 _LF = const(10)
 _MIN_PACKET_LEN = const(8)
+
+
+def _get_msg_type(buf: bytes, start, end) -> int:
+    """Определяет тип сообщения по фиксированной позиции в NMEA пакете.
+    Returns:
+        int: _MSG_GGA, _MSG_RMC или _MSG_UNKNOWN"""
+    if end - start < 7:
+        return _MSG_UNKNOWN
+
+    stop = start + 6
+    # Ищу только в первых 7 символах (позиции 3-5)
+    if buf.find(_GGA_SUB, start, stop) == start + 3:
+        return _MSG_GGA
+
+    if buf.find(_RMC_SUB, start, stop) == start + 3:
+        return _MSG_RMC
+
+    return _MSG_UNKNOWN
 
 
 class NMEAStreamReader:
@@ -48,12 +94,59 @@ class NMEAStreamReader:
         # Processed packets counter
         self.packets_processed = 0
 
+        # настройки анти-спам фильтра пакетов
+        # Это защита от слишком частого прихода пакетов GGA и RMC от GNSS приемника
+        self._anti_spam_min_ms = 0  # 0 = отключено (передавать все)
+        self._anti_spam_last_gga = 0  # Время последнего GGA
+        self._anti_spam_last_rmc = 0  # Время последнего RMC
+        # Статистика
+        # Сколько пакетов отфильтровано Анти-спам фильтром
+        self.anti_spam_dropped = 0  # Сколько пакетов отфильтровано
+
+    def _should_filter(self, msg_type: int) -> bool:
+        """Проверить, нужно ли отбросить пакет из-за анти-спам фильтра."""
+        if self._anti_spam_min_ms == 0:
+            return False
+
+        now = ticks_ms()
+
+        if msg_type == _MSG_GGA:
+            if ticks_diff(now, self._anti_spam_last_gga) < self._anti_spam_min_ms:
+                return True
+            self._anti_spam_last_gga = now
+
+        elif msg_type == _MSG_RMC:
+            if ticks_diff(now, self._anti_spam_last_rmc) < self._anti_spam_min_ms:
+                return True
+            self._anti_spam_last_rmc = now
+
+        return False
+
+    def set_anti_spam_interval(self, interval: int):
+        """Устанавливает минимальный интервал (в мс) между пакетами одного типа.
+        Пакеты, пришедшие раньше этого интервала, будут отброшены как спам.
+        :param interval: Интервал в миллисекундах (0-1000).
+                         0 или None = отключить фильтр (принимать все пакеты).
+        :raises ValueError: Если interval < 0 или > 1000."""
+        if interval is None or interval == 0:
+            self._anti_spam_min_ms = 0
+            return
+        if 0 < interval < 1_000:
+            self._anti_spam_min_ms = interval
+            return
+        raise ValueError(f"Неверное значение Анти-спам интервала!")
+
+
     def reset(self):
         """Сброс состояния курсора буфера и счетчиков.
         Вызывается при изменении скорости, сбоях UART или потере питания GPS."""
         self._pos = 0
         self.packets_aborted = 0
         self.packets_processed = 0
+        # Сброс анти-спам фильтра
+        self.anti_spam_dropped = 0
+        self._anti_spam_last_gga = 0
+        self._anti_spam_last_rmc = 0
 
     def read_available(self, parser, callback = None) -> int:
         """
@@ -76,7 +169,6 @@ class NMEAStreamReader:
         packets_aborted = self.packets_aborted
         pos = self._pos
         l_buf = self._line_buffer
-        # line_view = self._line_view
         buf_size = _LINE_BUFFER_SIZE
 
         for i in range(num_bytes):
@@ -99,9 +191,13 @@ class NMEAStreamReader:
 
                 if byte == _LF and l_buf[pos - 2] == _CR:
                     if pos >= _MIN_PACKET_LEN:
-                        # Из-за того, что memoryview не имеет метода find, в парсере приходится лишнее копирование в буфер.
-                        # memoryview оказался перегружен разными Strides, cast("X"), reshape((X, Y)).
-                        # Из-за этого простейший find оказался 'лишним'! И теперь приходится выделять абсолютно лишний буфер в ОЗУ, которого у микроконтроллеров 'кот наплакал'.
+                        # Анти-спам фильтр
+                        msg_type = _get_msg_type(l_buf, 0, pos)
+                        if msg_type != _MSG_UNKNOWN and self._should_filter(msg_type):
+                            self.anti_spam_dropped += 1
+                            pos = 0
+                            continue
+                        # передача пакета парсеру
                         recognized = parser.parse_line(l_buf, 0, pos)
                         # Вызов обработчика для статистики
                         if callback is not None:
