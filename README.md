@@ -249,6 +249,103 @@ To monitor memory usage, the stats.get_memory_usage() -> float method is used, w
 * Under MicroPython, it automatically calls gc.collect() to get the actual heap size.
 * Under Windows and Linux, it queries operating system interfaces without using external libraries.
 
+## Anti-Spam Filter
+
+GNSS receivers can send duplicate packets at high frequencies (5-10 Hz or more). 
+The `NMEAStreamReader` includes a built-in rate limiter that filters redundant 
+GGA/RMC packets before they reach the parser, reducing CPU load on microcontrollers.
+
+This feature is particularly useful when working with high-rate GNSS modules that 
+send the same data multiple times per second, allowing you to process only unique 
+updates while maintaining navigation accuracy.
+
+### How it works
+
+The filter operates at the stream reader level, **before** packets reach the parser:
+
+1. **Independent tracking** — GGA and RMC packets are tracked separately. A filtered GGA does not affect RMC reception, and vice versa.
+
+2. **Time-based filtering** — each packet type has its own timestamp. If a new packet of the same type arrives within the configured interval, it is silently dropped.
+
+3. **Unknown messages bypass** — packets of types other than GGA/RMC (GSV, GSA, VTG, etc.) are always passed to the parser unchanged. The filter does not interfere with them.
+
+4. **Zero-allocation** — the implementation uses `time.ticks_ms()` on MicroPython and `time.monotonic()` on CPython. No strings, lists, or heap allocations are created during filtering.
+
+Example timeline with a 100ms interval:
+
+| Time   | Packet | Action                      |
+|--------|--------|-----------------------------|
+| 0 ms   | GGA    | Accepted                    |
+| 3 ms   | RMC    | Accepted (different type)   |
+| 50 ms  | GGA    | Dropped (only 50ms elapsed) |
+| 100 ms | GGA    | Accepted (100ms elapsed)    |
+| 103 ms | RMC    | Accepted (different type)   |
+
+### Usage
+
+```python
+from light_nmea import LightNMEA, NMEAStreamReader
+
+reader = NMEAStreamReader(uart)
+parser = LightNMEA()
+
+# Enable anti-spam filter: minimum 100ms between packets of the same type
+reader.set_anti_spam_interval(100)
+
+while True:
+    packets = reader.read_available(parser)
+    if packets > 0 and parser.valid:
+        print(f"Lat: {parser.latitude}, Lon: {parser.longitude}")
+```
+* To disable the filter, pass 0 or None:
+```python
+reader.set_anti_spam_interval(0)  # All packets will be passed to the parser
+```
+
+### Configuration
+
+The filter interval is set via `set_anti_spam_interval(interval_ms)`.
+
+| Interval      | Behavior                                                                |
+|---------------|-------------------------------------------------------------------------|
+| `0` or `None` | Filter disabled -- all packets passed to parser                         |
+| `100`         | Default for high-rate receivers -- drops duplicates within 100ms window |
+| `500`         | Moderate filtering -- good for 2-5 Hz receivers                         |
+| `1000`        | Aggressive filtering -- one packet per second per type                  |
+
+Valid range: `0` to `1000` milliseconds. Values outside this range raise `ValueError`.
+
+**How to choose the right interval:**
+
+- For **1 Hz receivers** (standard GPS modules): use `0` (disabled) -- filtering is not needed
+- For **5-10 Hz receivers** (high-rate modules): use `100-200` -- keeps one update per 100-200ms
+- For **power-saving applications**: use `500-1000` -- reduces CPU wake-ups significantly
+
+### When to use
+
+- High-frequency GNSS receivers (5-10 Hz or more) sending duplicate GGA/RMC packets.
+- Reducing CPU load and saving power on microcontrollers.
+- Preventing parser spam when your application logic only needs 1 Hz updates.
+
+### When NOT to use
+
+- Standard 1 Hz receivers (filtering is unnecessary and adds slight overhead).
+- Post-processing NMEA log files (use the parser directly, bypassing the stream reader).
+- Applications requiring every single raw packet for precise timing, RTK base stations, or raw data logging.
+
+### Diagnostics and Reset
+
+The stream reader keeps an internal counter of packets dropped by the anti-spam filter. This is useful for debugging and tuning the interval for your specific hardware.
+
+```python
+print(f"Dropped by filter: {reader.anti_spam_dropped}")
+```
+If the GNSS module loses power, or if you change the UART baud rate at runtime, you should reset the stream reader state. This clears the internal buffer cursor, all statistical counters, and the anti-spam timestamps, ensuring the first packet after reconnection is always accepted.
+
+```python
+reader.reset()
+```
+
 ## Project Directory Structure
 When transferring the library to a microcontroller, only the light_nmea folder is required. The other scripts are used for testing and benchmarking on a PC.
 
