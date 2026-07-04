@@ -125,6 +125,8 @@ def stats_callback(recognized, valid, constellation):
 
 
 reader = NMEAStreamReader(uart)
+reader.set_anti_spam_interval(100)
+
 
 # === Главный цикл ===
 stats.start()
@@ -167,7 +169,8 @@ try:
                 print(f"Пакетов: {stats.total}, "
                       f"Фикс: {stats.valid_fix}, "
                       f"Поиск: {stats.no_fix}, "
-                      f"Отклонено: {stats.rejected}")
+                      f"Отклонено: {stats.rejected}, "
+                      f"Анти-спам: {reader.anti_spam_dropped},")
 
             # Принудительный GC
             gc_counter += processed
