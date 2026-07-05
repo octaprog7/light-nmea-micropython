@@ -48,6 +48,7 @@ light_nmea создан как альтернатива:
 | CPython (AMD Ryzen 7 2700)     | **124 991 п/с** | `pynmeagps`: 48 845 п/с    | **в 2.6× быстрее** |
 | CPython (AMD Ryzen 7 2700)     | **125 000 п/с** | `adafruit_gps`: 76 277 п/с | **в 1.6× быстрее** |
 | CPython (AMD Ryzen 7 2700)     | **127 143 п/с** | `micropyGPS`: 35 322 п/с   | **в 3.6× быстрее** |
+| CPython (AMD Ryzen 7 2700)     | **115,875 п/с** | `nmea_parser`: 59157 п/с   | **в 2.0× быстрее** |
 | MicroPython (RP2040 @ 133 МГц) | **375 п/с**     | `micropyGPS`: 25 п/с       | **в 15× быстрее**  |
 
 > **Примечание:** `pynmea2`, `pynmeagps` и `adafruit_gps` не работают на MicroPython из-за

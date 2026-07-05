@@ -38,6 +38,7 @@ To ensure a fair and comprehensive comparison, the benchmark script implements t
 | **CPython** (Ryzen 7 2700)        | **124,991 pps** | `pynmeagps`: 48,845 pps    |    **2.6× faster**    |
 | **CPython** (Ryzen 7 2700)        | **125,000 pps** | `adafruit_gps`: 76,277 pps |    **1.6× faster**    |
 | **CPython** (Ryzen 7 2700)        | **127,143 pps** | `micropyGPS`: 35,322 pps   |    **3.6× faster**    |
+| **CPython** (Ryzen 7 2700)        | **115,875 pps** | `nmea_parser`: 59157 pps   |    **2.0× faster**    |
 | **MicroPython** (RP2040 @ 133MHz) |   **375 pps**   | `micropyGPS`: 25 pps       | **12.0-15.0× faster** |
 
 
