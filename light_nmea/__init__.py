@@ -5,4 +5,6 @@ Usage:
     from light_nmea.nmea0183_stream import NMEAStreamReader
     from light_nmea.conv_to_hrf import to_format
 """
-__version__ = "1.0.1"
+__version__ = "2.0.0"
+__author__ = "Roman Shevchik"
+__license__ = "GPL-3.0"
