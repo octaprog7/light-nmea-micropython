@@ -105,11 +105,12 @@ light_nmea создан как альтернатива:
 
 ### NMEA 0183 v3.x (стандартные)
 
-| Сообщение           | Описание                                   | Поддержка                   |
-|---------------------|--------------------------------------------|-----------------------------|
-| `$GPRMC` / `$GNRMC` | Recommended Minimum Navigation Information | Полный парсинг              |
-| `$GPGGA` / `$GNGGA` | Global Positioning System Fix Data         | Полный парсинг              |
-| `$GPGSV`            | Satellites in View                         | Принимается, но не парсится |
+| Сообщение             | Описание                                   | Поддержка                   |
+|-----------------------|--------------------------------------------|-----------------------------|
+| `$GPRMC` / `$GNRMC`   | Recommended Minimum Navigation Information | Полный парсинг              |
+| `$GPGGA` / `$GNGGA`   | Global Positioning System Fix Data         | Полный парсинг              |
+| `$GPVTG` / `$GNVTG`   | Track Made Good and Ground Speed           | Полный парсинг              |
+| `$GPGLL` / `$GNGLL`   | Geographic Position                        | Полный парсинг              |
 
 ### NMEA 0183 v4.10+ (новые Talker ID)
 

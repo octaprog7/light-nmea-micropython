@@ -81,9 +81,10 @@ Even at a rate of 20 Hz, the microcontroller has an x18 CPU margin for other app
 |---------------------|--------------------------------------------|--------------------------|
 | `$GPRMC` / `$GNRMC` | Recommended Minimum Navigation Information | Full parsing             |
 | `$GPGGA` / `$GNGGA` | Global Positioning System Fix Data         | Full parsing             |
-| `$GPGSV`            | Satellites in View                         | Accepted, but not parsed |
+| `$GPVTG` / `$GNVTG` | Track Made Good and Ground Speed           | Full parsing             |
+| `$GPGLL` / `$GNGLL` | Geographic Position                        | Full parsing             |
 
-### NMEA 0183 v4.10+ (новые Talker ID)
+## NMEA 0183 v4.10+ (новые Talker ID)
 
 | Talker ID | Constellation          | Example  | Support |
 |-----------|------------------------|----------|---------|
