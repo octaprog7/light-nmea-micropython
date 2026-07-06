@@ -25,7 +25,7 @@ except ImportError:
         return f
 
 # === константы ===
-_MAX_PACKET_SIZE = const(120)  # Макс. длина NMEA-пакета
+_MAX_PACKET_SIZE = const(120)  # Максимальная длина NMEA-пакета
 # _MSG_RMC: bytes = b"RMC"
 # _MSG_GGA: bytes = b"GGA"
 _NEGATIVE_DIRS: tuple = (b'S', b'W')
@@ -44,10 +44,14 @@ RESET_RMC: int = const(2)
 _DOLLAR = const(36)
 _STAR = const(42)
 _COMMA = const(44)
-#_CR = const(13)
 _LF = const(10)
 _MIN_PACKET_LEN = const(10)
+#
 _G_CHAR = const(71)  # 'G'
+_V_CHAR = const(86)  # 'V'
+_L_CHAR = const(76)  # 'L'
+_T_CHAR = const(84)  # 'T'
+#
 _T2_OFFSET = const(65)  # ord('A') - начало диапазона второго байта
 _T2_MAX = const(81)     # ord('Q') - конец диапазона второго байта
 
@@ -196,25 +200,14 @@ def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> int | tuple:
     h1 = line_bytes[star_idx + 1]
     h2 = line_bytes[star_idx + 2]
 
-    # Первый nibble
-    if 48 <= h1 <= 57:
-        n1 = h1 - 48
-    elif 65 <= h1 <= 70:
-        n1 = h1 - 55
-    elif 97 <= h1 <= 102:
-        n1 = h1 - 87
-    else:
+    # Проверка валидности (необязательно!)
+    if not ((48 <= h1 <= 57) or (65 <= h1 <= 70) or (97 <= h1 <= 102)):
+        return _SCAN_LINE_ERROR
+    if not ((48 <= h2 <= 57) or (65 <= h2 <= 70) or (97 <= h2 <= 102)):
         return _SCAN_LINE_ERROR
 
-    # Второй nibble
-    if 48 <= h2 <= 57:
-        n2 = h2 - 48
-    elif 65 <= h2 <= 70:
-        n2 = h2 - 55
-    elif 97 <= h2 <= 102:
-        n2 = h2 - 87
-    else:
-        return _SCAN_LINE_ERROR
+    n1 = (h1 & 0x0F) + (9 * ((h1 >> 6) & 1))
+    n2 = (h2 & 0x0F) + (9 * ((h2 >> 6) & 1))
 
     if calc_cs != ((n1 << 4) | n2):
         return _SCAN_LINE_ERROR
@@ -222,30 +215,36 @@ def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> int | tuple:
     return star_idx, comma_count
 
 @native
-def _parse_degrees(raw_bytes: bytes, direction_bytes: bytes) -> float | None:
-    """Парсинг координат: find() + memoryview."""
-    if not raw_bytes:
+def _parse_degrees(raw_bytes: bytes, lat_st: int, lat_en: int, dir_st: int, dir_en: int) -> float | None:
+    """Парсинг координат. Работает напрямую с исходным буфером через индексы."""
+    if lat_st >= lat_en:
         return None
 
-    # Быстрый поиск точки '.' на уровне Си
-    dot_idx = raw_bytes.find(b'.')
-    # Создаю memoryview
+    # Быстрый поиск точки с указанием диапазона (без создания среза!)
+    dot_idx = raw_bytes.find(b'.', lat_st, lat_en)
+
+    # Создаем memoryview ОДИН раз для всего буфера
     mv = memoryview(raw_bytes)
+
     try:
-        # Если точка не найдена то последние 2 байта это угловые минуты
         if dot_idx == -1:
-            degrees = float(mv[:-2])
-            minutes = float(mv[-2:])
+            # Нет точки: формат DDMM (последние 2 байта - минуты)
+            degrees = float(mv[lat_st:lat_en - 2])
+            minutes = float(mv[lat_en - 2:lat_en])
         else:
-            degrees = float(mv[:dot_idx - 2])
-            minutes = float(mv[dot_idx - 2:])
+            # Есть точка: формат DDMM.MMMM
+            degrees = float(mv[lat_st:dot_idx - 2])
+            minutes = float(mv[dot_idx - 2:lat_en])
     except (ValueError, TypeError):
         return None
 
     decimal = degrees + (minutes * _MINUTES_TO_DEGREES)
 
-    if direction_bytes in _NEGATIVE_DIRS:
-        decimal = -decimal
+    # Проверяем направление напрямую по байту (без создания среза dir_raw!)
+    if dir_st < dir_en:
+        dir_byte = raw_bytes[dir_st]
+        if dir_byte == _S_CHAR or dir_byte == _W_CHAR:
+            decimal = -decimal
 
     return decimal
 
@@ -400,12 +399,173 @@ class LightNMEA:
                 self._time_buffer[3], self._time_buffer[4], self._time_buffer[5], 0
             ))
 
+
+    @native
+    def _parse_rmc(self, line_bytes: bytearray, star_idx: int, comma_count: int) -> bool:
+        """Парсинг RMC (Recommended Minimum Specific GNSS Data)."""
+        if comma_count < 9:
+            if self._enable_diagnostics:
+                self.reject_too_short += 1
+            return False
+
+        # Mode Indicator
+        if comma_count >= 11:
+            mode_st = self._comma_pos[10] + 1
+            mode_en = star_idx
+            if mode_en > mode_st:
+                mode_byte = line_bytes[mode_st]
+                if _A_CHAR <= mode_byte <= _R_CHAR:
+                    self.fix_mode = _FIX_MODE_TABLE[mode_byte - _A_CHAR]
+                else:
+                    self.fix_mode = FIX_NOT_VALID
+            else:
+                self.fix_mode = FIX_NOT_VALID
+        else:
+            self.fix_mode = FIX_NOT_VALID
+
+        # Статус
+        s_st = self._comma_pos[1] + 1
+        if line_bytes[s_st] != _A_CHAR:
+            self.reset(RESET_RMC)
+            return True
+
+        self.valid = True
+
+        # Время
+        self.time = line_bytes[7:self._comma_pos[1]]
+
+        # Широта
+        self.latitude = _parse_degrees(
+            line_bytes,
+            self._comma_pos[2] + 1, self._comma_pos[3],
+            self._comma_pos[3] + 1, self._comma_pos[4]
+        )
+
+        # Долгота
+        self.longitude = _parse_degrees(
+            line_bytes,
+            self._comma_pos[4] + 1, self._comma_pos[5],
+            self._comma_pos[5] + 1, self._comma_pos[6]
+        )
+
+        # Скорость и курс (один memoryview)
+        rmc_mv = memoryview(line_bytes)
+
+        sp_st, sp_en = self._comma_pos[6] + 1, self._comma_pos[7]
+        self.speed = float(rmc_mv[sp_st:sp_en]) * _KNOTS_TO_KMH if sp_en > sp_st else None
+
+        cr_st, cr_en = self._comma_pos[7] + 1, self._comma_pos[8]
+        self.course = float(rmc_mv[cr_st:cr_en]) if cr_en > cr_st else None
+
+        # Дата
+        self.date = line_bytes[self._comma_pos[8] + 1:self._comma_pos[9]]
+        return True
+
+    @native
+    def _parse_gga(self, line_bytes: bytearray, comma_count: int) -> bool:
+        """Парсинг GGA (GNSS Fix Data)."""
+        if comma_count < 9:
+            if self._enable_diagnostics:
+                self.reject_too_short += 1
+            return False
+
+        gga_mv = memoryview(line_bytes)
+        fix_st = self._comma_pos[5] + 1
+        fix_en = self._comma_pos[6]
+
+        if fix_en > fix_st and line_bytes[fix_st] != _0_CHAR:
+            fix_quality = int(gga_mv[fix_st:fix_en])
+            if fix_quality < len(_GGA_QUALITY_FIX_MODE):
+                self.fix_mode = _GGA_QUALITY_FIX_MODE[fix_quality]
+
+            sat_st, sat_en = self._comma_pos[6] + 1, self._comma_pos[7]
+            self.satellites = int(gga_mv[sat_st:sat_en]) if sat_en > sat_st else 0
+
+            hdop_st, hdop_en = self._comma_pos[7] + 1, self._comma_pos[8]
+            self.hdop = float(gga_mv[hdop_st:hdop_en]) if hdop_en > hdop_st else None
+
+            alt_st, alt_en = self._comma_pos[8] + 1, self._comma_pos[9]
+            self.altitude = float(gga_mv[alt_st:alt_en]) if alt_en > alt_st else None
+
+            if self._trust_gga:
+                self.valid = True
+        else:
+            if self._trust_gga:
+                self.valid = False
+            self.satellites = 0
+            self.hdop = None
+            self.altitude = None
+
+        return True
+
+    @native
+    def _parse_vtg(self, line_bytes: bytearray, comma_count: int) -> bool:
+        """Парсинг VTG (Track Made Good and Ground Speed)."""
+        if comma_count < 8:
+            if self._enable_diagnostics:
+                self.reject_too_short += 1
+            return False
+
+        vtg_mv = memoryview(line_bytes)
+
+        # Курс
+        cr_st, cr_en = self._comma_pos[0] + 1, self._comma_pos[1]
+        if cr_en > cr_st:
+            self.course = float(vtg_mv[cr_st:cr_en])
+
+        # Скорость в узлах
+        sp_st, sp_en = self._comma_pos[4] + 1, self._comma_pos[5]
+        if sp_en > sp_st:
+            self.speed = float(vtg_mv[sp_st:sp_en]) * _KNOTS_TO_KMH
+
+        # Скорость в км/ч (перезаписывает, если есть)
+        sp_kmh_st, sp_kmh_en = self._comma_pos[6] + 1, self._comma_pos[7]
+        if sp_kmh_en > sp_kmh_st:
+            self.speed = float(vtg_mv[sp_kmh_st:sp_kmh_en])
+
+        return True
+
+    @native
+    def _parse_gll(self, line_bytes: bytearray, comma_count: int) -> bool:
+        """Парсинг GLL (Geographic Position)."""
+        if comma_count < 6:
+            if self._enable_diagnostics:
+                self.reject_too_short += 1
+            return False
+
+        s_st = self._comma_pos[5] + 1
+        s_en = self._comma_pos[6]
+
+        if s_en > s_st and line_bytes[s_st] == _A_CHAR:
+            self.valid = True
+            self.time = line_bytes[self._comma_pos[4] + 1:self._comma_pos[5]]
+
+            self.latitude = _parse_degrees(
+                line_bytes,
+                self._comma_pos[0] + 1, self._comma_pos[1],
+                self._comma_pos[1] + 1, self._comma_pos[2]
+            )
+            self.longitude = _parse_degrees(
+                line_bytes,
+                self._comma_pos[2] + 1, self._comma_pos[3],
+                self._comma_pos[3] + 1, self._comma_pos[4]
+            )
+            return True
+        else:
+            self.valid = False
+            self.latitude = None
+            self.longitude = None
+            return True
+
+
+# fix_mode обновляется только из RMC и GGA
+# VTG — только скорость и курс
+# GLL — только координаты и время
+# Нет конфликтов, проще логика, быстрее парсинг
+
     @native
     def parse_line(self, buf: bytes, start: int = 0, end: int = -1) -> bool:
-        """Основной метод парсинга.
-        :param buf: bytes, bytearray или memoryview
-        :param start: начальный индекс
-        :param end: конечный индекс (-1 = до конца)"""
+        """Основной метод парсинга. Диспетчер сообщений."""
         if end == -1:
             end = len(buf)
 
@@ -413,7 +573,7 @@ class LightNMEA:
         if packet_len > _MAX_PACKET_SIZE:
             return False
 
-        # Копируем в pre-allocated буфер (без аллокаций!)
+        # Копирую в pre-allocated буфер
         self._parse_buffer[:packet_len] = buf[start:end]
         line_bytes = self._parse_buffer
 
@@ -423,147 +583,30 @@ class LightNMEA:
                 self.reject_crc += 1
             return False
 
-        # Определяю созвездие (для любого типа сообщения)
+        # Определяю созвездие
         cst = _get_constellation(line_bytes[1], line_bytes[2])
         self.constellation = cst
 
-        # Неизвестное созвездие - пропуск
         if cst == CST_UNKNOWN:
             if self._enable_diagnostics:
                 self.reject_unknown_cst += 1
             return False
-        # Проверка, разрешено ли созвездие в маске
+
         if not (self._cst_mask & (1 << cst)):
             if self._enable_diagnostics:
                 self.reject_filtered_cst += 1
             return False
 
-        # Recommended Minimum Specific GNSS Data
-        if line_bytes[3] == _R_CHAR and line_bytes[4] == _M_CHAR and line_bytes[5] == _C_CHAR:  # 'R', 'M', 'C'
-            if comma_count < 9:
-                if self._enable_diagnostics:
-                    self.reject_too_short += 1
-                return False
-
-            #   Парсинг Mode Indicator (всегда, если есть поле)
-            if comma_count >= 11:
-                mode_st = self._comma_pos[10] + 1
-                mode_en = star_idx
-                if mode_en > mode_st:
-                    mode_byte = line_bytes[mode_st]
-                    if _A_CHAR <= mode_byte <= _R_CHAR:
-                        self.fix_mode = _FIX_MODE_TABLE[mode_byte - _A_CHAR]
-                    else:
-                        self.fix_mode = FIX_NOT_VALID
-                else:
-                    self.fix_mode = FIX_NOT_VALID
-            else:
-                self.fix_mode = FIX_NOT_VALID
-
-            #   Поле 2: статус
-            s_st = self._comma_pos[1] + 1
-            s_en = self._comma_pos[2]
-
-            if s_en - s_st == 1 and line_bytes[s_st] == _A_CHAR:
-                self.valid = True
-
-                #   Поле 1
-                t_st = 7
-                t_en = self._comma_pos[1]
-                self.time = line_bytes[t_st:t_en]  # Теперь срез [7:13] (для времени)
-
-                #   Поля 3-4: широта
-                lat_st = self._comma_pos[2] + 1
-                lat_en = self._comma_pos[3]
-                lat_raw = line_bytes[lat_st:lat_en]
-
-                dir_st = self._comma_pos[3] + 1
-                dir_en = self._comma_pos[4]
-                dir_raw = line_bytes[dir_st:dir_en]
-
-                self.latitude = _parse_degrees(lat_raw, dir_raw)
-
-                #   Поля 5-6: долгота
-                lon_st = self._comma_pos[4] + 1
-                lon_en = self._comma_pos[5]
-                lon_raw = line_bytes[lon_st:lon_en]
-
-                vdir_st = self._comma_pos[5] + 1
-                vdir_en = self._comma_pos[6]
-                vdir_raw = line_bytes[vdir_st:vdir_en]
-
-                self.longitude = _parse_degrees(lon_raw, vdir_raw)
-
-                #   Поле 7: скорость
-                sp_st = self._comma_pos[6] + 1
-                sp_en = self._comma_pos[7]
-                speed_raw = line_bytes[sp_st:sp_en]
-                self.speed = float(speed_raw) * _KNOTS_TO_KMH if speed_raw else None
-
-                #   Поле 8: курс
-                cr_st = self._comma_pos[7] + 1
-                cr_en = self._comma_pos[8]
-                course_raw = line_bytes[cr_st:cr_en]
-                self.course = float(course_raw) if course_raw else None
-
-                #   Поле 9: дата
-                d_st = self._comma_pos[8] + 1
-                d_en = self._comma_pos[9]
-                self.date = line_bytes[d_st:d_en]
-
-                return True
-            else:
-                self.reset(RESET_RMC)
-                return True
-
-        # Global Positioning System Fix Data (хотя GGA = GNSS Geo Altitude)
-        elif line_bytes[3] == _G_CHAR and line_bytes[4] == _G_CHAR and line_bytes[5] == _A_CHAR:  # 'G', 'G', 'A'
-            if comma_count < 9:
-                if self._enable_diagnostics:
-                    self.reject_too_short += 1
-                return False
-
-            #   Поле 6: качество фикса
-            fix_st = self._comma_pos[5] + 1
-            fix_en = self._comma_pos[6]
-
-            if fix_en > fix_st and line_bytes[fix_st] != _0_CHAR: # не 0 и не пустое
-                #   Поле 7: спутники
-                sat_st = self._comma_pos[6] + 1
-                sat_en = self._comma_pos[7]
-                sats = line_bytes[sat_st:sat_en]
-                self.satellites = int(sats) if sats else 0
-
-                # Поле 7: HDOP
-                hdop_st = self._comma_pos[7] + 1
-                hdop_en = self._comma_pos[8]
-                if hdop_en > hdop_st:
-                    self.hdop = float(line_bytes[hdop_st:hdop_en])
-
-                #   Поле 9: высота
-                alt_st = self._comma_pos[8] + 1
-                alt_en = self._comma_pos[9]
-                alt_raw = line_bytes[alt_st:alt_en]
-                self.altitude = float(alt_raw) if alt_raw else None
-
-                if self._trust_gga:
-                    self.valid = True
-                    # Обновляю fix_mode на основе качества из GGA
-                    # fix_quality в int
-                    fix_quality = int(line_bytes[fix_st:fix_en])
-
-                    # Прямая индексация по tuple
-                    if fix_quality < len(_GGA_QUALITY_FIX_MODE):
-                        self.fix_mode = _GGA_QUALITY_FIX_MODE[fix_quality]
-                    # Если fix_quality > 5 - не трогаю self.fix_mode
-                    # возможно, он уже установлен из RMC, или останется FIX_NOT_VALID
-            else:
-                if self._trust_gga:
-                    self.valid = False
-                self.reset(RESET_GGA)
-            return True
-
+        # Диспетчер по типам сообщений
+        b3, b4, b5 = line_bytes[3], line_bytes[4], line_bytes[5]
+        if b3 == _R_CHAR and b4 == _M_CHAR and b5 == _C_CHAR:   # RMC
+            return self._parse_rmc(line_bytes, star_idx, comma_count)
+        elif b3 == _G_CHAR and b4 == _G_CHAR and b5 == _A_CHAR: # GGA
+            return self._parse_gga(line_bytes, comma_count)
+        elif b3 == _V_CHAR and b4 == _T_CHAR and b5 == _G_CHAR: # VTG
+            return self._parse_vtg(line_bytes, comma_count)
+        elif b3 == _G_CHAR and b4 == _L_CHAR and b5 == _L_CHAR: # GLL
+            return self._parse_gll(line_bytes, comma_count)
         if self._enable_diagnostics:
             self.reject_unknown_msg += 1
-
         return False
