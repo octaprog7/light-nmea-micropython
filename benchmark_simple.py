@@ -33,7 +33,7 @@ TEST_PACKETS = (
 
 ITERATIONS = 500_000
 if _IS_MPY:
-    ITERATIONS = 1333  # для MicroPython
+    ITERATIONS = 1000  # для MicroPython
 
 def benchmark_light_nmea():
     """Бенчмарк light_nmea."""
