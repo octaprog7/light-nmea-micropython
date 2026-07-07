@@ -425,6 +425,10 @@ pip install pyserial
 ![Hardware Setup with Cat](assets/hardware_setup.jpg)
 *Testing light_nmea on real hardware (under strict feline QA supervision).*
 
+### PC Logger Output
+
+![NMEA PC Logger Terminal](assets/nmea_pc_logger.png)
+
 
 ## Authorship and License
 Copyright 2026 Roman Shevchik
