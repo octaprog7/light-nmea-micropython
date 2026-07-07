@@ -21,7 +21,7 @@ from machine import UART, Pin, RTC
 from light_nmea.nmea0183_parser import LightNMEA
 from light_nmea.nmea0183_stats import GPSStats
 from light_nmea.nmea0183_stream import NMEAStreamReader
-from light_nmea.conv_to_hrf import to_format
+from light_nmea.conv_to_hrf import to_format, FMT_CSV
 
 # === Конфигурация ===
 UART_ID = const(0)
@@ -38,6 +38,8 @@ STATS_PRINT_LIMIT = const(150)
 
 # Вывод данных пакета в консоль при наличии фикса
 print_packet_info: bool = True
+# Если истина, то выводит только данные в CSV
+only_gnss : bool = True
 
 # === Инициализация ===
 parser = LightNMEA(trust_gga_fix=True, enable_diagnostics=True)
@@ -79,10 +81,13 @@ def _is_date_valid(date_bytes: bytes) -> bool:
         return False
 
 
-def _print_packet_data(my_parser) -> None:
+def _print_packet_data(my_parser, gnss_only: bool = True) -> None:
     """Выводит данные пакета в консоль (только при наличии фикса)."""
+    if gnss_only:
+        print(to_format(my_parser, FMT_CSV))
+        return
     print("--- Пакет с фиксом ---")
-    print(to_format(my_parser))
+    print(to_format(my_parser, FMT_CSV))
     print("--------------------")
 
 
@@ -130,7 +135,8 @@ reader.set_anti_spam_interval(100)
 
 # === Главный цикл ===
 stats.start()
-print(f"Свободно ОЗУ [КБ]: {stats.get_memory_usage()}")
+if not only_gnss:
+    print(f"Свободно ОЗУ [КБ]: {stats.get_memory_usage()}")
 gc_counter = 0
 _RTC_SYNC_MAX_ATTEMPTS = const(5)
 rtc_sync_attempts = 0
@@ -150,13 +156,16 @@ try:
                     try:
                         parser.sync_hardware_rtc(rtc)
                         rtc_synced = True
-                        print(f"RTC синхронизирован: {parser.date} {par_time}")
+                        if not only_gnss:
+                            print(f"RTC синхронизирован: {parser.date} {par_time}")
                     except Exception as e:
                         rtc_sync_attempts += 1
-                        print(f"Ошибка синхронизации RTC ({rtc_sync_attempts}/{_RTC_SYNC_MAX_ATTEMPTS}): {e}")
+                        if not only_gnss:
+                            print(f"Ошибка синхронизации RTC ({rtc_sync_attempts}/{_RTC_SYNC_MAX_ATTEMPTS}): {e}")
                         if rtc_sync_attempts >= _RTC_SYNC_MAX_ATTEMPTS:
                             rtc_synced = True  # Сдаюсь после _RTC_SYNC_MAX_ATTEMPTS попыток
-                            print(f"RTC недоступен после {_RTC_SYNC_MAX_ATTEMPTS} попыток, синхронизация отключена!")
+                            if not only_gnss:
+                                print(f"RTC недоступен после {_RTC_SYNC_MAX_ATTEMPTS} попыток, синхронизация отключена!")
 
                 if par_time != last_time_from_gnss:
                     # Вывод данных пакета при наличии фикса
@@ -165,12 +174,13 @@ try:
                 last_time_from_gnss = par_time
 
             # Вывод статистики
-            if stats.total % STATS_PRINT_LIMIT == 0:
-                print(f"Пакетов: {stats.total}, "
-                      f"Фикс: {stats.valid_fix}, "
-                      f"Поиск: {stats.no_fix}, "
-                      f"Отклонено: {stats.rejected}, "
-                      f"Анти-спам: {reader.anti_spam_dropped},")
+            if not only_gnss:
+                if stats.total % STATS_PRINT_LIMIT == 0:
+                    print(f"Пакетов: {stats.total}, "
+                          f"Фикс: {stats.valid_fix}, "
+                        f"Поиск: {stats.no_fix}, "
+                        f"Отклонено: {stats.rejected}, "
+                        f"Анти-спам: {reader.anti_spam_dropped},")
 
             # Принудительный GC
             gc_counter += processed
@@ -183,12 +193,14 @@ try:
             time.sleep_ms(10)
 
 except KeyboardInterrupt:
-    print("\nОстановка...")
-    stats.report()
-    GPSStats.print_reject_stats(parser)
-    GPSStats.print_state(parser)
-    print(f"Оборвано пакетов: {reader.packets_aborted}")
-    if 'uart' in locals():
-        uart.deinit()
+    if not only_gnss:
+        print("\nОстановка...")
+        stats.report()
+        GPSStats.print_reject_stats(parser)
+        GPSStats.print_state(parser)
+        print(f"Оборвано пакетов: {reader.packets_aborted}")
+        if 'uart' in locals():
+            uart.deinit()
 
-print(f"Свободно ОЗУ [КБ]: {stats.get_memory_usage()}")
+if not only_gnss:
+    print(f"Свободно ОЗУ [КБ]: {stats.get_memory_usage()}")
