@@ -49,6 +49,9 @@ _JSON_ALTITUDE = f'"{_ALTITUDE}"'
 _JSON_TIME = f'"{_TIME}"'
 _JSON_DATE = f'"{_DATE}"'
 
+_CST_NAMES = ("GPS", "SBAS", "GLONASS", "BeiDou", "QZSS", "Galileo", "NavIC", "Multi-GNSS")
+_FIX_NAMES = ("No Fix", "2D", "3D", "RTK Fixed", "RTK Float", "DR", "GNSS+DR")
+
 
 # === Вспомогательные функции форматирования ===
 @native
@@ -120,15 +123,15 @@ def _to_txt(parser) -> str:
 
 def _to_csv(parser) -> str:
     """Преобразует данные парсера в CSV-строку.
+    Формат: valid,sat,lat,lon,speed,course,alt,time,date,constellation,fix_mode,hdop"""
+    # Безопасное получение имени созвездия
+    cst = parser.constellation
+    cst_name = _CST_NAMES[cst] if cst < len(_CST_NAMES) else f"U{cst}"
 
-    Формат: valid,sat,lat,lon,speed,course,alt,time,date
+    # Безопасное получение имени режима фикса
+    fm = parser.fix_mode
+    fix_name = _FIX_NAMES[fm] if fm < len(_FIX_NAMES) else f"U{fm}"
 
-    Args:
-        parser: Экземпляр парсера NMEA
-
-    Returns:
-        CSV-строка
-    """
     return (
         f"{int(parser.valid)},"
         f"{parser.satellites},"
@@ -138,7 +141,10 @@ def _to_csv(parser) -> str:
         f"{parser.course if parser.course is not None else ''},"
         f"{parser.altitude if parser.altitude is not None else ''},"
         f"{_fmt_dt(parser.time) if parser.time else ''},"
-        f"{_fmt_dt(value=parser.date, is_time=False) if parser.date else ''}"
+        f"{_fmt_dt(value=parser.date, is_time=False) if parser.date else ''},"
+        f"{cst_name},"
+        f"{fix_name},"
+        f"{parser.hdop if parser.hdop is not None else ''}"
     )
 
 
