@@ -420,6 +420,12 @@ Script for recording GNSS data from a microcontroller to a PC.
 pip install pyserial
 ```
 
+### Hardware Setup
+
+![Hardware Setup with Cat](assets/hardware_setup.jpg)
+*Testing light_nmea on real hardware (under strict feline QA supervision).*
+
+
 ## Authorship and License
 Copyright 2026 Roman Shevchik
 ### License

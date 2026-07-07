@@ -452,6 +452,12 @@ light-nmea-mp/
 pip install pyserial
 ```
 
+### Тестовый стенд
+
+![Кот следит](assets/hardware_setup.jpg)
+*Тестирование библиотеки на реальном железе под строгим контролем кота.*
+
+
 ## Авторство и Лицензия
 
 Copyright 2026 Roman Shevchik
