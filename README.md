@@ -408,6 +408,18 @@ NMEAStream(uart, buffer_size=512): Constructor. Accepts a machine.UART object an
 * buffer_usage() -> int: Returns the current number of bytes occupied in the ring buffer (from 0 to buffer_size). Useful for overflow monitoring.
 * reset() -> None: Force clears the ring buffer and resets the frame search state. Used in case of critical overflow.
 
+## Tools for working with light_nmea
+
+### nmea_pc_logger.py
+
+Script for recording GNSS data from a microcontroller to a PC.
+
+#### Installing Dependencies
+
+```bash
+pip install pyserial
+```
+
 ## Authorship and License
 Copyright 2026 Roman Shevchik
 ### License
