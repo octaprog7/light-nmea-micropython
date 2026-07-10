@@ -18,38 +18,48 @@ import sys
 import time
 from array import array
 
-# Импортируем константы из парсера
+# Импортирую константы из парсера
 try:
-    from .nmea0183_parser import (
+    from light_nmea.nmea0183_parser import (
         FIX_AUTONOMOUS, FIX_DGPS, FIX_ESTIMATED, FIX_NOT_VALID,
         FIX_RTK_FIXED, FIX_RTK_FLOAT,
         CST_UNKNOWN, CST_GPS, CST_GLONASS, CST_GALILEO,
         CST_BEIDOU, CST_QZSS, CST_NAVIC, CST_MULTI
     )
 except ImportError:
-    # для прямого импорта (без пакета)
-    from nmea0183_parser import (
-        FIX_AUTONOMOUS, FIX_DGPS, FIX_ESTIMATED, FIX_NOT_VALID,
-        FIX_RTK_FIXED, FIX_RTK_FLOAT,
-        CST_UNKNOWN, CST_GPS, CST_GLONASS, CST_GALILEO,
-        CST_BEIDOU, CST_QZSS, CST_NAVIC, CST_MULTI
-    )
+    try:
+        # Для обычного Python (CPython) внутри пакета
+        from .nmea0183_parser import (
+            FIX_AUTONOMOUS, FIX_DGPS, FIX_ESTIMATED, FIX_NOT_VALID,
+            FIX_RTK_FIXED, FIX_RTK_FLOAT,
+            CST_UNKNOWN, CST_GPS, CST_GLONASS, CST_GALILEO,
+            CST_BEIDOU, CST_QZSS, CST_NAVIC, CST_MULTI
+        )
+    except ImportError:
+        # Для прямого запуска скрипта из его папки
+        from nmea0183_parser import (
+            FIX_AUTONOMOUS, FIX_DGPS, FIX_ESTIMATED, FIX_NOT_VALID,
+            FIX_RTK_FIXED, FIX_RTK_FLOAT,
+            CST_UNKNOWN, CST_GPS, CST_GLONASS, CST_GALILEO,
+            CST_BEIDOU, CST_QZSS, CST_NAVIC, CST_MULTI
+        )
 
 # === Platform detection ===
 if hasattr(time, 'ticks_ms'):
+    # MicroPython
     def _now_ms() -> int:
         return time.ticks_ms()
-
 
     def _diff_ms(start: int, end: int) -> int:
         return time.ticks_diff(end, start)
 else:
+    # CPython
     def _now_ms() -> float:
         return 1000.0 * time.perf_counter()
 
-
     def _diff_ms(start: float, end: float) -> float:
         return end - start
+
 
 _IS_MPY: bool = hasattr(gc, 'mem_free')
 _DELIM: str = "=" * 60
