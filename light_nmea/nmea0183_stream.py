@@ -12,9 +12,23 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-# === Module constants ===
 
-from micropython import const
+# Настройка const для MicroPython / CPython
+try:
+    # MicroPython
+    from micropython import const
+except ImportError:
+    # CPython
+    def const(x):
+        return x
+
+try:
+    # MicroPython
+    from micropython import native
+except ImportError:
+    # CPython
+    def native(func):
+        return func
 
 # Для кроссплатформенной работы с интервалами времени
 try:
@@ -26,7 +40,7 @@ except ImportError:
 
     def ticks_ms():
         """Аналог ticks_ms для CPython (возвращает мс с момента старта)."""
-        return int(_time.monotonic() * 1000)
+        return int(1_000 * _time.monotonic())
 
 
     def ticks_diff(t1, t2):
@@ -51,7 +65,7 @@ _CR = const(13)
 _LF = const(10)
 _MIN_PACKET_LEN = const(8)
 
-
+@native
 def _get_msg_type(buf: bytes, start, end) -> int:
     """Определяет тип сообщения по фиксированной позиции в NMEA пакете.
     Returns:
