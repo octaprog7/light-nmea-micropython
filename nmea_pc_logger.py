@@ -20,27 +20,40 @@
 import serial
 from datetime import datetime
 
+# Библиотека pyserial на ПК и драйверы операционной системы требуют указать скорость как обязательный аргумент при открытии порта.
+# Для виртуального COM-порта (USB CDC) этот параметр полностью игнорируется контроллером USB.
+# Реальная скорость ограничена только пропускной способностью USB-шины и буферами MicroPython!
+
 # НАСТРОЙКИ
-BAUD_RATE = 38400
+BAUD_RATE = 115200
+#
 COM_PORT = "/dev/ttyACM0"
 OUTPUT_FILE = 'gnss_log.csv'
 
-print(f"Открываю порт {COM_PORT}...")
+# Заголовок CSV (пробелы после запятых убраны для парсинга)
+_CSV_HEADER = "valid,satellites,latitude,longitude,speed,course,altitude,time,date,constellation,fix_mode,hdop\n"
 
+def _write_csv_header(file_obj, header: str = _CSV_HEADER):
+    """Записывает заголовок в CSV-файл и сбрасывает буфер."""
+    file_obj.write(header)
+    file_obj.flush()
+
+print(f"Открываю порт {COM_PORT}...")
+serial_dev = None
 try:
-    ser = serial.Serial(COM_PORT, BAUD_RATE, timeout=1)
+    serial_dev = serial.Serial(COM_PORT, BAUD_RATE, timeout=1)
     print(f"Порт открыт. Пишу в {OUTPUT_FILE}")
     print("Нажми Ctrl+C для остановки\n")
 
     with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
         if f.tell() == 0:
-            f.write("valid,satellites,latitude,longitude,speed,course,altitude,time,date,constellation,fix_mode,hdop\n")
+            _write_csv_header(f)
 
         while True:
-            if ser.in_waiting > 0:
-                line = ser.readline().decode('utf-8').strip()
+            if serial_dev.in_waiting > 0:
+                line = serial_dev.readline().decode('utf-8').strip()
                 if line:
-                    # Красивый вывод с временем получения
+                    # вывод с временем получения
                     timestamp = datetime.now().strftime("%H:%M:%S")
                     print(f"[{timestamp}] {line}")
                     f.write(line + "\n")
@@ -49,4 +62,4 @@ try:
 except KeyboardInterrupt:
     print("\n\nОстановка. Данные сохранены в", OUTPUT_FILE)
 finally:
-    ser.close()
+    serial_dev.close()
