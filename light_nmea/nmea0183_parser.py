@@ -15,14 +15,20 @@
 import time
 
 try:
-    from micropython import const, native, viper
+    from micropython import const
 except ImportError:
-    def const(x):
-        return x
-    def native(f):
-        return f
-    def viper(f):
-        return f
+    def const(x): return x
+
+try:
+    from micropython import native
+except ImportError:
+    def native(f): return f
+
+try:
+    from micropython import viper
+except ImportError:
+    def viper(f): return f
+
 
 # === константы ===
 _MAX_PACKET_SIZE = const(120)  # Максимальная длина NMEA-пакета
