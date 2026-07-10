@@ -94,18 +94,15 @@ class NMEAStreamReader:
         self._uart = uart_instance
         # Буфер для пакетов
         self._line_buffer = bytearray(_LINE_BUFFER_SIZE)
-        # ссылка на self._line_buffer без копирования байт и без выделения памяти
-        # self._line_view = memoryview(self._line_buffer)
         # курсор
         self._pos = 0
 
         # Static read buffer (Zero-Allocation)
         self._read_buffer = bytearray(_MAX_CHUNK)
 
-        # Aborted packets counter (for UART interference diagnostics)
-        # Counts NMEA packets that were not completed correctly (no \r\n).
+        # Счетчик неполных пакетов (для диагностики помех UART)
         self.packets_aborted = 0
-        # Processed packets counter
+        # Общее кол-во обработанных пакетов
         self.packets_processed = 0
 
         # настройки анти-спам фильтра пакетов
