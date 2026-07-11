@@ -4,6 +4,11 @@ import gc
 import sys
 import time
 
+try:
+    from micropython import native
+except ImportError:
+    def native(f): return f
+
 # Автоопределение платформы
 _IS_MPY = hasattr(time, "ticks_us")
 
@@ -41,7 +46,7 @@ def get_time_ms():
 def get_time_diff(end, start):
     return time.ticks_diff(end, start) if _IS_MPY else (end - start)
 
-
+@native
 def benchmark_light_nmea():
     """Бенчмарк light_nmea."""
     parser = LightNMEA()
@@ -78,7 +83,7 @@ def benchmark_light_nmea():
 
     return speed
 
-
+@native
 def benchmark_micropygps():
     """Бенчмарк micropyGPS (если установлен)."""
     try:
@@ -125,6 +130,7 @@ def benchmark_micropygps():
 
 _WIDTH = 60
 
+@native
 def main():
     print("=" * _WIDTH)
     print("Бенчмарк NMEA-парсеров")
