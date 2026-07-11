@@ -30,20 +30,19 @@ except ImportError:
     def viper(f): return f
 
 
-# === константы ===
-_MAX_PACKET_SIZE = const(120)  # Максимальная длина NMEA-пакета
-# _MSG_RMC: bytes = b"RMC"
-# _MSG_GGA: bytes = b"GGA"
-_NEGATIVE_DIRS: tuple = (b'S', b'W')
-_INVALID_FIXES: tuple = (b'0', b'')
-_MINUTES_TO_DEGREES: float = 1.0 / 60.0
-_KNOTS_TO_KMH: float = 1.852
-_MAX_COMMAS: int = const(14)
-_SCAN_LINE_ERROR: tuple = (-1, -1)
+# постоянные
+_MAX_PACKET_SIZE = const(120)  # Максимальная длина NMEA-пакета в ASCII
+_NEGATIVE_DIRS = (b'S', b'W')
+_INVALID_FIXES = (b'0', b'')
+_MINUTES_TO_DEGREES = 1.0 / 60.0
+_KNOTS_TO_KMH = 1.852
+_MAX_COMMAS = const(14)
+_NOT_FOUND = const(-1)  # Результат поиска, когда элемент не найден
+_SCAN_LINE_ERROR = (-1, -1)
 
-RESET_ALL: int = const(0)
-RESET_GGA: int = const(1)
-RESET_RMC: int = const(2)
+RESET_ALL = const(0)
+RESET_GGA = const(1)
+RESET_RMC = const(2)
 
 
 # ASCII-коды
@@ -185,7 +184,7 @@ def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> int | tuple:
         return _SCAN_LINE_ERROR
 
     calc_cs: int = 0
-    star_idx: int = -1
+    star_idx: int = _NOT_FOUND
     comma_count: int = 0
 
     for i in range(1, line_len):
@@ -199,7 +198,7 @@ def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> int | tuple:
                 comma_count += 1
         calc_cs ^= b
 
-    if star_idx == -1 or star_idx + 3 > line_len:
+    if star_idx == _NOT_FOUND or star_idx + 3 > line_len:
         return _SCAN_LINE_ERROR
 
     # проверка CRC с валидацией HEX
@@ -233,7 +232,7 @@ def _parse_degrees(raw_bytes: bytes, lat_st: int, lat_en: int, dir_st: int, dir_
     mv = memoryview(raw_bytes)
 
     try:
-        if dot_idx == -1:
+        if dot_idx == _NOT_FOUND:
             # Нет точки: формат DDMM (последние 2 байта - минуты)
             degrees = float(mv[lat_st:lat_en - 2])
             minutes = float(mv[lat_en - 2:lat_en])
@@ -569,9 +568,9 @@ class LightNMEA:
 # GLL содержит данные только координат и времени
 
     @native
-    def parse_line(self, buf: bytes, start: int = 0, end: int = -1) -> bool:
+    def parse_line(self, buf: bytes, start: int = 0, end: int = _NOT_FOUND) -> bool:
         """Основной метод парсинга. Диспетчер сообщений."""
-        if end == -1:
+        if end == _NOT_FOUND:
             end = len(buf)
 
         packet_len = end - start
@@ -583,7 +582,7 @@ class LightNMEA:
         line_bytes = self._parse_buffer
 
         star_idx, comma_count = _scan_line(line_bytes, self._comma_pos)
-        if star_idx == -1:
+        if star_idx == _NOT_FOUND:
             if self._enable_diagnostics:
                 self.reject_crc += 1
             return False
