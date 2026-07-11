@@ -18,18 +18,17 @@ import sys
 import time
 from array import array
 
-# Импортирую константы из парсера
+# Импорт констант из парсера (абсолютные пути для MicroPython)
 try:
-    # относительный импорт внутри пакета (для mip, CPython и Unix-порта)
-    from .nmea0183_parser import (
+    # Основной путь: когда библиотека установлена как пакет в /lib
+    from light_nmea.nmea0183_parser import (
         FIX_AUTONOMOUS, FIX_DGPS, FIX_ESTIMATED, FIX_NOT_VALID,
         FIX_RTK_FIXED, FIX_RTK_FLOAT,
         CST_UNKNOWN, CST_GPS, CST_GLONASS, CST_GALILEO,
         CST_BEIDOU, CST_QZSS, CST_NAVIC, CST_MULTI
     )
-except (ImportError, ValueError):
-    # для прямого запуска скрипта из его родной папки на девайсе
-    # (ValueError перехватывает ошибку "attempted relative import with no known parent package")
+except ImportError:
+    # Вспомогательный путь: для прямого запуска скрипта из его родной папки на устройстве
     from nmea0183_parser import (
         FIX_AUTONOMOUS, FIX_DGPS, FIX_ESTIMATED, FIX_NOT_VALID,
         FIX_RTK_FIXED, FIX_RTK_FLOAT,
