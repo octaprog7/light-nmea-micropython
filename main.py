@@ -22,7 +22,6 @@
 #     http://apache.org
 
 import gc
-# import time
 from nav_gen import get_nav_packet
 from light_nmea.nmea0183_parser import LightNMEA
 from light_nmea.nmea0183_stats import GPSStats
