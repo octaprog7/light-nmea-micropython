@@ -138,10 +138,26 @@ def run_dual_benchmark(name1: str, func1, name2: str, func2) -> tuple:
     print_line_separator("=", _DUAL_BENCH_WIDTH)
     return pps1, pps2
 
-def get_parent_dir(path: str) -> str:
+def _get_parent_dir(path: str) -> str:
     """Возвращает родительскую директорию (аналог os.path.dirname для MicroPython)."""
     path = path.rstrip('/\\')
     idx = path.rfind('/')
     if idx == -1:
         idx = path.rfind('\\')
     return path[:idx] if idx != -1 else ''
+
+
+def get_cross_platform_root(file_full_path: str) -> str:
+    """Возвращает корень проекта (на 2 уровня вверх) кроссплатформенно
+    для CPython, Unix-порта и стандартного MicroPython.
+    в качестве file_full_path передавайте __file__, которая содержит полный путь к файлу текущего выполняемого скрипта.
+    Начиная с Python 3.9, переменная __file__ всегда содержит абсолютный (полный) путь к файлу, включая диск и все папки.
+    D MicroPython переменная __file__ содержит относительный(!) путь, а именно — просто короткое имя самого файла."""
+    try:
+        # CPython и Unix-порт MicroPython (используют abspath)
+        return os.path.dirname(os.path.dirname(os.path.abspath(file_full_path)))
+    except (AttributeError, ImportError, OSError):
+        # Стандартный MicroPython (RP2040, ESP32)
+        _dir = get_parent_dir(_get_parent_dir(file_full_path))
+        # возвращаю найденный путь, либо текущую папку, если путь пуст
+        return _dir if _dir else os.getcwd()

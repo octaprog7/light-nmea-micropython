@@ -8,23 +8,33 @@ import os
 import sys
 import platform
 import subprocess
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from nav_gen import get_nav_packet
-
 # Импортируем только необходимое
 from benchmark.bench_utils import (
     TimeInterval,
     ITERATIONS,
     run_dual_benchmark,
-    print_line_separator
+    print_line_separator,
+    get_cross_platform_root
 )
+
+# Защита от REPL/IDE на уровне запускаемого модуля
+try:
+    _current_file = __file__
+except NameError:
+    # имя несуществующего файла для возврата текущей рабочей папки
+    _current_file = "empty_dummy.py"
+
+# Определяю корень проекта
+base_dir = get_cross_platform_root(_current_file)
+# Вставляет на нулевую позицию списка поиска путей sys.path.
+sys.path.insert(0, base_dir)
 
 try:
     import adafruit_gps
 except ImportError:
-    print("ERROR: adafruit_gps is not installed.")
-    print("Install it with: pip install adafruit-circuitpython-gps")
+    print("ОШИБКА: adafruit_gps не установлена!")
+    print("Установи ее так: pip install adafruit-circuitpython-gps. Обязательно в отдельном виртуальном окружении!")
     raise
 
 
