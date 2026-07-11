@@ -20,29 +20,23 @@ from array import array
 
 # Импортирую константы из парсера
 try:
-    from light_nmea.nmea0183_parser import (
+    # относительный импорт внутри пакета (для mip, CPython и Unix-порта)
+    from .nmea0183_parser import (
         FIX_AUTONOMOUS, FIX_DGPS, FIX_ESTIMATED, FIX_NOT_VALID,
         FIX_RTK_FIXED, FIX_RTK_FLOAT,
         CST_UNKNOWN, CST_GPS, CST_GLONASS, CST_GALILEO,
         CST_BEIDOU, CST_QZSS, CST_NAVIC, CST_MULTI
     )
-except ImportError:
-    try:
-        # Для обычного Python (CPython) внутри пакета
-        from .nmea0183_parser import (
-            FIX_AUTONOMOUS, FIX_DGPS, FIX_ESTIMATED, FIX_NOT_VALID,
-            FIX_RTK_FIXED, FIX_RTK_FLOAT,
-            CST_UNKNOWN, CST_GPS, CST_GLONASS, CST_GALILEO,
-            CST_BEIDOU, CST_QZSS, CST_NAVIC, CST_MULTI
-        )
-    except ImportError:
-        # Для прямого запуска скрипта из его папки
-        from nmea0183_parser import (
-            FIX_AUTONOMOUS, FIX_DGPS, FIX_ESTIMATED, FIX_NOT_VALID,
-            FIX_RTK_FIXED, FIX_RTK_FLOAT,
-            CST_UNKNOWN, CST_GPS, CST_GLONASS, CST_GALILEO,
-            CST_BEIDOU, CST_QZSS, CST_NAVIC, CST_MULTI
-        )
+except (ImportError, ValueError):
+    # для прямого запуска скрипта из его родной папки на девайсе
+    # (ValueError перехватывает ошибку "attempted relative import with no known parent package")
+    from nmea0183_parser import (
+        FIX_AUTONOMOUS, FIX_DGPS, FIX_ESTIMATED, FIX_NOT_VALID,
+        FIX_RTK_FIXED, FIX_RTK_FLOAT,
+        CST_UNKNOWN, CST_GPS, CST_GLONASS, CST_GALILEO,
+        CST_BEIDOU, CST_QZSS, CST_NAVIC, CST_MULTI
+    )
+
 
 # === Platform detection ===
 if hasattr(time, 'ticks_ms'):
