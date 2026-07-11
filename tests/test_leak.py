@@ -14,6 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 # test_leak.py
+# test_leak.py
 import gc
 import time
 from nav_gen import get_nav_packet
@@ -21,25 +22,33 @@ from light_nmea.nmea0183_parser import LightNMEA
 from light_nmea.nmea0183_stats import GPSStats
 
 ITERATIONS = 1_000_000
-
 _DELIM = 60
 
-def main():
-    gps = LightNMEA(trust_gga_fix=True)
-    stats = GPSStats()
 
+def main():
     print("=" * _DELIM)
-    print("ТЕСТ НА УТЕЧКУ: 3 ПРОГОНА В ОДНОМ ПРОЦЕССЕ")
+    print("ТЕСТ НА УТЕЧКУ: АНАЛИЗ БАЗОВОЙ ПАМЯТИ (ОДИН ПРОЦЕСС)")
     print("=" * _DELIM)
     print()
 
-    for run in range(1, 4):
-        gc.collect()
-        time.sleep(0.3)
+    # Для хранения базовой памяти перед каждым прогоном
+    base_memories = []
 
-        mem_before = stats.get_memory_usage()
+    for run in range(1, 4):
+        # Пересоздаю объекты, чтобы поймать утечки при их переинициализации
+        gps = LightNMEA(trust_gga_fix=True)
+        stats = GPSStats()
+
+        # Жесткая очистка памяти перед замером точки старта
+        gc.collect()
+        time.sleep(0.5)  # Даем ОС обновить метрики RSS
+
+        # Замеряю базовую память процесса ДО начала создания объектов цикла
+        mem_baseline = stats.get_memory_usage()
+        base_memories.append(mem_baseline)
+
         print(f"Прогон {run}:")
-        print(f"  До теста:    {mem_before:8.0f} КБ")
+        print(f"Базовая память процесса: {mem_baseline:8.0f} КБ")
 
         stats.start()
         for _ in range(ITERATIONS):
@@ -48,20 +57,31 @@ def main():
             stats.update(is_recognized, gps.valid)
         stats.stop()
 
+        # Локальный замер для информации
         mem_after = stats.get_memory_usage()
-        delta = mem_after - mem_before
-
-        print(f"  После теста: {mem_after:8.0f} КБ")
-        print(f"  Дельта:      {delta:+8.0f} КБ")
-        print(f"  Скорость:    {stats.packets_per_sec:.0f} пакетов/сек")
+        print(f"Пиковая память в прогоне: {mem_after:8.0f} КБ")
+        print(f"Скорость обработки:       {stats.packets_per_sec:.0f} пакетов/сек")
         print()
 
-        stats.reset()
-
     print("=" * _DELIM)
-    print("ИНТЕРПРЕТАЦИЯ:")
-    print("  Если дельта УМЕНЬШАЕТСЯ (500 -> 10 -> 2) -> НЕТ утечки")
-    print("  Если дельта ОДИНАКОВАЯ (500 -> 500 -> 500) -> ЕСТЬ утечка")
+    print("АНАЛИЗ ТРЕНДА:")
+    print("=" * _DELIM)
+
+    # Считаю, насколько увеличилась базовая память между шагами
+    diff_1_2 = base_memories[1] - base_memories[0]
+    diff_2_3 = base_memories[2] - base_memories[1]
+
+    print(f"  Изменение базы (Прогон 1 -> 2): {diff_1_2:+8.0f} КБ")
+    print(f"  Изменение базы (Прогон 2 -> 3): {diff_2_3:+8.0f} КБ")
+    print()
+
+    # Интерпретация по базовой памяти (учитываем погрешность выделения ОЗУ в 32 КБ)
+    if diff_2_3 > 32:
+        print("ИТОГОВЫЙ ВЫВОД: ОБНАРУЖЕНА УТЕЧКА ПАМЯТИ!")
+        print("  Базовая память процесса продолжает расти со временем.")
+    else:
+        print("ИТОГОВЫЙ ВЫВОД: УТЕЧЕК НЕТ.")
+        print("  Память стабилизировалась, аллокатор использует ее повторно.")
     print("=" * _DELIM)
 
 

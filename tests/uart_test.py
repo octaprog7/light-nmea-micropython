@@ -15,8 +15,13 @@
 
 # uart_test.py - Тест UART с автоопределением скорости и частоты
 import time
-from micropython import const
-from machine import UART, Pin
+try:
+    from micropython import const
+    from machine import UART, Pin
+except ImportError:
+    import sys
+    print("Work ONLY under MicroPython! Work aborted!")
+    sys.exit(-1)
 
 # Конфигурация UART
 UART_ID = const(0)
@@ -108,7 +113,7 @@ def _detect_rate(uart_obj):
                 buffer.extend(chunk)
         time.sleep_ms(_COLLECT_SLEEP_MS)
 
-    # Подсчитываем RMC-предложения (даже пустые)
+    # Подсчитываю RMC-предложения (даже пустые)
     rmc_count = _count_rmc_sentences(bytes(buffer))
 
     if rmc_count == 0:
@@ -116,10 +121,10 @@ def _detect_rate(uart_obj):
         print(f"[Внимание] Используется частота по умолчанию: {_DEFAULT_RATE_HZ} Гц")
         return _DEFAULT_RATE_HZ
 
-    # Рассчитываем частоту
+    # Рассчитываю частоту
     rate_hz = rmc_count / _RATE_DETECT_DURATION_SEC
 
-    # Округляем до ближайшей стандартной частоты
+    # Округляю до ближайшей стандартной частоты
     detected_rate = min(_STANDARD_RATES, key=lambda r: abs(r - rate_hz))
 
     print(f"RMC-предложений: {rmc_count} за {_RATE_DETECT_DURATION_SEC} сек")
@@ -151,25 +156,25 @@ def _detect_baudrate()->int:
 
         uart = _open_uart(baud)
 
-        # Ожидаем поступления данных
+        # Ожидаю поступления данных
         time.sleep_ms(_PROBE_WAIT_MS)
 
-        # Дренаж накопленных данных
+        # Чтение накопленных данных
         while uart.any():
             uart.read(uart.any())
 
-        # Читаем свежие данные (ждём достаточно для хотя бы 1 пакета на 1 Гц)
+        # Читаю свежие данные (ждём достаточно для хотя бы 1 пакета на 1 Гц)
         time.sleep_ms(_READ_WAIT_MS)
         data = uart.read()
 
         uart.deinit()
 
         if _has_nmea(data):
-            print(f"NMEA обнаружена на скорости {baud} бод")
+            print(f"NMEA-данные обнаружены на скорости {baud} бод")
             print(f"Пример: {data[:80]}")
             return baud
 
-        print(f"[Ошибка] NMEA-данные не получены")
+        print(f"[Ошибка] NMEA-данные НЕ получены!")
         time.sleep_ms(_BAUD_PROBE_DELAY_MS)
 
     print(f"\n[Внимание] Не удалось определить скорость, используется {_DEFAULT_BAUDRATE}")
