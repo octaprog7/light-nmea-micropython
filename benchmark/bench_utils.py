@@ -152,12 +152,12 @@ def get_cross_platform_root(file_full_path: str) -> str:
     для CPython, Unix-порта и стандартного MicroPython.
     в качестве file_full_path передавайте __file__, которая содержит полный путь к файлу текущего выполняемого скрипта.
     Начиная с Python 3.9, переменная __file__ всегда содержит абсолютный (полный) путь к файлу, включая диск и все папки.
-    D MicroPython переменная __file__ содержит относительный(!) путь, а именно — просто короткое имя самого файла."""
+    D MicroPython переменная __file__ содержит относительный(!) путь, а именно - просто короткое имя самого файла."""
     try:
         # CPython и Unix-порт MicroPython (используют abspath)
         return os.path.dirname(os.path.dirname(os.path.abspath(file_full_path)))
     except (AttributeError, ImportError, OSError):
         # Стандартный MicroPython (RP2040, ESP32)
-        _dir = get_parent_dir(_get_parent_dir(file_full_path))
+        _dir = _get_parent_dir(_get_parent_dir(file_full_path))
         # возвращаю найденный путь, либо текущую папку, если путь пуст
         return _dir if _dir else os.getcwd()
