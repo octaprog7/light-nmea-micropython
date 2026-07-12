@@ -56,63 +56,42 @@ _FIX_NAMES = ("No Fix", "2D", "3D", "RTK Fixed", "RTK Float", "DR", "GNSS+DR")
 # === Вспомогательные функции форматирования ===
 @native
 def _fmt_dt(value, is_time: bool = True) -> str:
-    """Форматирует время или дату из NMEA в человекочитаемый вид.
-
-    Args:
-        value: bytes или str с временем (HHMMSS.SS) или датой (DDMMYY)
-        is_time: True для времени, False для даты
-
-    Returns:
-        Отформатированная строка:
-        - Время: HH:MM:SS.SS
-        - Дата: DD.MM.YYYY
-    """
+    """Форматирует время или дату из NMEA в человекочитаемый вид."""
     if not value:
         return ""
 
     val = value
-    # Преобразую bytes/bytearray в str
     if isinstance(value, (bytes, bytearray)):
         val = value.decode('ascii')
 
     six = 6
     if is_time:
-        # Форматирование времени: HHMMSS.SS -> HH:MM:SS.SS
         if len(val) < six:
             return val
         return f"{val[0:2]}:{val[2:4]}:{val[4:]}"
 
-    # Форматирование даты: DDMMYY -> DD.MM.YYYY
     if len(val) != six:
         return val
     return f"{val[0:2]}.{val[2:4]}.20{val[4:six]}"
 
 
 def _to_txt(parser) -> str:
-    """Преобразует данные парсера в человекочитаемый формат.
+    """Преобразует данные парсера в человекочитаемый формат."""
+    valid_str = 'Yes' if parser.valid else 'No'
+    sat_str = str(parser.satellites) if parser.satellites is not None else '0'
+    lines = [f"Fix: {valid_str}", f"{_SATS}: {sat_str}"]
 
-    Args:
-        parser: Экземпляр парсера NMEA
-    Returns:
-        Многострочная строка с навигационными данными"""
-
-    lines = [f"Fix: {'Yes' if parser.valid else 'No'}", f"{_SATS}: {parser.satellites}"]
-
-    # Координаты
     if parser.has_coordinates():
         lines.append(f"{_LAT}: {parser.latitude:.6f}°")
         lines.append(f"{_LONG}: {parser.longitude:.6f}°")
 
-    # 2D навигация
     if parser.has_navigation():
         lines.append(f"{_SPEED}: {parser.speed:.1f} km/h")
         lines.append(f"{_COURSE}: {parser.course:.1f}°")
 
-    # 3D фикс
     if parser.has_3d_fix():
         lines.append(f"{_ALTITUDE}: {parser.altitude:.1f} m")
 
-    # Время и дата
     if parser.time:
         lines.append(f"{_TIME}: {_fmt_dt(parser.time)} UTC")
     if parser.date:
@@ -122,60 +101,67 @@ def _to_txt(parser) -> str:
 
 
 def _to_csv(parser) -> str:
-    """Преобразует данные парсера в CSV-строку.
-    Формат: valid,sat,lat,lon,speed,course,alt,time,date,constellation,fix_mode,hdop"""
-    # Безопасное получение имени созвездия
+    """Преобразует данные парсера в CSV-строку."""
+    # получаю имя созвездия
     cst = parser.constellation
-    cst_name = _CST_NAMES[cst] if cst < len(_CST_NAMES) else f"U{cst}"
+    if cst is None:
+        cst_name = 'Unknown'
+    elif cst < len(_CST_NAMES):
+        cst_name = str(_CST_NAMES[cst])
+    else:
+        cst_name = f"U{cst}"
 
-    # Безопасное получение имени режима фикса
+    # получаю имя режима фикса
     fm = parser.fix_mode
-    fix_name = _FIX_NAMES[fm] if fm < len(_FIX_NAMES) else f"U{fm}"
+    if fm is None:
+        fix_name = 'Unknown'
+    elif fm < len(_FIX_NAMES):
+        fix_name = str(_FIX_NAMES[fm])
+    else:
+        fix_name = f"U{fm}"
 
-    return (
-        f"{int(parser.valid)},"
-        f"{parser.satellites},"
-        f"{parser.latitude if parser.latitude is not None else ''},"
-        f"{parser.longitude if parser.longitude is not None else ''},"
-        f"{parser.speed if parser.speed is not None else ''},"
-        f"{parser.course if parser.course is not None else ''},"
-        f"{parser.altitude if parser.altitude is not None else ''},"
-        f"{_fmt_dt(parser.time) if parser.time else ''},"
-        f"{_fmt_dt(value=parser.date, is_time=False) if parser.date else ''},"
-        f"{cst_name},"
-        f"{fix_name},"
-        f"{parser.hdop if parser.hdop is not None else ''}"
-    )
+    # Привожу к строкам с защитой от None
+    valid = str(int(parser.valid)) if parser.valid is not None else '0'
+    sat = str(parser.satellites) if parser.satellites is not None else '0'
+
+    lat = str(parser.latitude) if parser.latitude is not None else ''
+    lon = str(parser.longitude) if parser.longitude is not None else ''
+    spd = str(parser.speed) if parser.speed is not None else ''
+    crs = str(parser.course) if parser.course is not None else ''
+    alt = str(parser.altitude) if parser.altitude is not None else ''
+    hdop = str(parser.hdop) if parser.hdop is not None else ''
+
+    time_str = str(_fmt_dt(parser.time)) if parser.time else ''
+    date_str = str(_fmt_dt(parser.date, is_time=False)) if parser.date else ''
+
+    return ",".join([
+        valid, sat, lat, lon, spd, crs, alt,
+        time_str, date_str, cst_name, fix_name, hdop
+    ])
 
 
 def _to_json(parser) -> str:
-    """Преобразует данные парсера в JSON-строку.
+    """Преобразует данные парсера в JSON-строку."""
+    valid_str = 'true' if parser.valid else 'false'
+    sat_str = str(parser.satellites) if parser.satellites is not None else '0'
+    parts = [f'"valid":{valid_str}', f'{_JSON_SATS}:{sat_str}']
 
-    Работает без ujson/json модулей.
-
-    Args:
-        parser: Экземпляр парсера NMEA
-
-    Returns:
-        JSON-строка с навигационными данными
-    """
-    parts = [f'"valid":{str(parser.valid).lower()}', f'{_JSON_SATS}:{parser.satellites}']
-
-    # Координаты
     if parser.has_coordinates():
-        parts.append(f'{_JSON_LAT}:{parser.latitude}')
-        parts.append(f'{_JSON_LONG}:{parser.longitude}')
+        lat_str = str(parser.latitude) if parser.latitude is not None else '0'
+        lon_str = str(parser.longitude) if parser.longitude is not None else '0'
+        parts.append(f'{_JSON_LAT}:{lat_str}')
+        parts.append(f'{_JSON_LONG}:{lon_str}')
 
-    # 2D навигация
     if parser.has_navigation():
-        parts.append(f'{_JSON_SPEED}:{parser.speed}')
-        parts.append(f'{_JSON_COURSE}:{parser.course}')
+        spd_str = str(parser.speed) if parser.speed is not None else '0'
+        crs_str = str(parser.course) if parser.course is not None else '0'
+        parts.append(f'{_JSON_SPEED}:{spd_str}')
+        parts.append(f'{_JSON_COURSE}:{crs_str}')
 
-    # 3D фикс
     if parser.has_3d_fix():
-        parts.append(f'{_JSON_ALTITUDE}:{parser.altitude}')
+        alt_str = str(parser.altitude) if parser.altitude is not None else '0'
+        parts.append(f'{_JSON_ALTITUDE}:{alt_str}')
 
-    # Время и дата
     if parser.time:
         parts.append(f'{_JSON_TIME}:"{_fmt_dt(parser.time)}"')
     if parser.date:
@@ -185,20 +171,14 @@ def _to_json(parser) -> str:
 
 
 def _to_compact(parser) -> str:
-    """Компактный однострочный формат для логирования.
+    """Компактный однострочный формат для логирования."""
+    sat_str = str(parser.satellites) if parser.satellites is not None else '0'
 
-    Args:
-        parser: Экземпляр парсера NMEA
-
-    Returns:
-        Однострочная строка с основными данными
-    """
     if not parser.has_coordinates():
-        return f"NO_FIX sat={parser.satellites}"
+        return f"NO_FIX sat={sat_str}"
 
     coords = f"{parser.latitude:.6f},{parser.longitude:.6f}"
-
-    parts = [f"FIX {_SATS}={parser.satellites} {coords}"]
+    parts = [f"FIX {_SATS}={sat_str} {coords}"]
 
     if parser.has_navigation():
         parts.append(f"{_SPEED}={parser.speed:.1f} {_COURSE}={parser.course:.1f}")
