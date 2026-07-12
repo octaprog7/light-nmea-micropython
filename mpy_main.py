@@ -167,7 +167,7 @@ try:
                             if not only_gnss:
                                 print(f"RTC недоступен после {_RTC_SYNC_MAX_ATTEMPTS} попыток, синхронизация отключена!")
 
-                if par_time != last_time_from_gnss:
+                if par_time != last_time_from_gnss and parser.hdop is not None:
                     # Вывод данных пакета при наличии фикса
                     if print_packet_info:
                         _print_packet_data(parser)
@@ -176,11 +176,7 @@ try:
             # Вывод статистики
             if not only_gnss:
                 if stats.total % STATS_PRINT_LIMIT == 0:
-                    print(f"Пакетов: {stats.total}, "
-                          f"Фикс: {stats.valid_fix}, "
-                        f"Поиск: {stats.no_fix}, "
-                        f"Отклонено: {stats.rejected}, "
-                        f"Анти-спам: {reader.anti_spam_dropped},")
+                    print(f"Пакетов: {stats.total}, Фикс: {stats.valid_fix}, Поиск: {stats.no_fix}, Отклонено: {stats.rejected}, Анти-спам: {reader.anti_spam_dropped}")                    
 
             # Принудительный GC
             gc_counter += processed
