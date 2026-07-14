@@ -385,7 +385,8 @@ light-nmea-mp/
 |-- README_RU.md             # Документация проекта (RU)
 |-- README.md                # Документация проекта (EN)
 |-- run_all_benchmarks.py    # Последовательный запуск всех бенчей
-|-- analyze_accuracy.py      # Calculation of accuracy parameters based on the data in the gnss_log.txt file, which is created by the nmea_pc_logger.py script. 
+|-- analyze_accuracy.py      # Расчет параметров точности на основе данных из файла gnss_log.txt, создаваемого скриптом nmea_pc_logger.py.
+|-- nmea_pc_logger.py        # GNSS-регистратор данных, записывает навигационные данные с микроконтроллера в CSV-файл. 
 |
 |-- light_nmea/              # Изолированный пакет парсера (копировать на МК)
 |   |-- init.py          # Маркер пакета Python
