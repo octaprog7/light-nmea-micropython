@@ -128,7 +128,7 @@ light_nmea создан как альтернатива:
 ### Фильтрация по созвездиям
 
 ```python
-from light_nmea import LightNMEA, CST_MASK_GPS, CST_MASK_GALILEO
+from light_nmea import LightNMEA, CST_MASK_GPS, CST_MASK_GALILEO, CST_MASK_ALL
 
 parser = LightNMEA()
 
@@ -384,7 +384,8 @@ light-nmea-mp/
 |-- LICENSE                  # Лицензия GNU GPL v3.0
 |-- README_RU.md             # Документация проекта (RU)
 |-- README.md                # Документация проекта (EN)
-|-- run_all_benchmarks.py    # Последовательный запуск всех бенчей 
+|-- run_all_benchmarks.py    # Последовательный запуск всех бенчей
+|-- analyze_accuracy.py      # Calculation of accuracy parameters based on the data in the gnss_log.txt file, which is created by the nmea_pc_logger.py script. 
 |
 |-- light_nmea/              # Изолированный пакет парсера (копировать на МК)
 |   |-- init.py          # Маркер пакета Python
