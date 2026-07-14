@@ -99,7 +99,7 @@ Even at a rate of 20 Hz, the microcontroller has an x18 CPU margin for other app
 
 ### Constellation Filtering
 ```python
-from light_nmea import LightNMEA, CST_MASK_GPS, CST_MASK_GALILEO
+from light_nmea import LightNMEA, CST_MASK_GPS, CST_MASK_GALILEO, CST_MASK_ALL
 
 parser = LightNMEA()
 
