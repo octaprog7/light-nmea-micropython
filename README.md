@@ -1,6 +1,6 @@
 # LightNMEA
 
-📖 [По-русски](README_RU.md)
+[По-русски](https://github.com/octaprog7/light-nmea-micropython/blob/master/README_RU.md)
 
 
 Extremely fast, zero-dependency, single-pass NMEA 0183 parser with minimal memory allocation, written specifically for MicroPython and Python (CPython).
