@@ -356,7 +356,8 @@ light-nmea-mp/
 |-- LICENSE                  # GNU GPL v3.0 License
 |-- README_RU.md             # Project documentation (Russian)
 |-- README.md                # Project documentation (English)
-|-- analyze_accuracy.py      # Calculation of accuracy parameters based on the data in the gnss_log.txt file, which is created by the nmea_pc_logger.py script.
+|-- analyze_accuracy.py      # Calculation of accuracy parameters based on the data in the gnss_log.txt file, which is created by the nmea_pc_logger.py script
+|-- nmea_pc_logger.py        # GNSS Data Logger - Record navigation data from a microcontroller to a CSV file
 |
 |-- light_nmea/              # Isolated parser package (copy to MCU)
 |   |-- __init__.py          # Python package marker
