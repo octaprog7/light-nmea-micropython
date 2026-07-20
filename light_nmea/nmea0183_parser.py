@@ -245,7 +245,7 @@ def _parse_degrees(raw_bytes: bytes, lat_st: int, lat_en: int, dir_st: int, dir_
 
     decimal = degrees + (minutes * _MINUTES_TO_DEGREES)
 
-    # Проверяем направление напрямую по байту (без создания среза dir_raw!)
+    # Проверяю направление напрямую по байту (без создания среза dir_raw!)
     if dir_st < dir_en:
         dir_byte = raw_bytes[dir_st]
         if dir_byte == _S_CHAR or dir_byte == _W_CHAR:
@@ -318,34 +318,30 @@ class LightNMEA:
         self.reject_unknown_msg: int = 0    # Пакетов отклонено: неизвестное сообщение (не RMC/GGA)
         self.reject_too_short: int = 0      # Пакетов отклонено: пакет слишком короткий
 
-    def reset(self, scope: int = RESET_RMC) -> None:
-        """Сброс полей."""
-        if scope == RESET_GGA:
+    def reset(self, scope: int = RESET_ALL) -> None:
+        """Сброс полей навигации. Простой и объединенный."""
+        # Cброс общий и для GGA, и для RMC, так как оба дают координаты
+        self.valid = False
+        self.latitude = None
+        self.longitude = None
+        self.fix_mode = FIX_NOT_VALID
+
+        # Сброс данных, приходящих из пакета типа GGA
+        if scope == RESET_GGA or scope == RESET_ALL:
             self.altitude = None
             self.satellites = 0
             self.hdop = None
-        elif scope == RESET_RMC:
-            self.valid = False
-            self.latitude = None
-            self.longitude = None
+
+        # Сброс данных, приходящих из пакета типа RMC
+        if scope == RESET_RMC or scope == RESET_ALL:
             self.speed = None
             self.course = None
             self.time = b""
             self.date = b""
-            self.fix_mode = FIX_NOT_VALID
-        else:
-            self.valid = False
-            self.latitude = None
-            self.longitude = None
-            self.speed = None
-            self.course = None
-            self.altitude = None
-            self.satellites = 0
-            self.time = b""
-            self.date = b""
+
+        # Общий сброс (только при RESET_ALL)
+        if scope == RESET_ALL:
             self.constellation = CST_UNKNOWN
-            self.fix_mode = FIX_NOT_VALID
-            self.hdop = None
 
     def has_coordinates(self) -> bool:
         return self.latitude is not None and self.longitude is not None
@@ -404,6 +400,31 @@ class LightNMEA:
                 self._time_buffer[3], self._time_buffer[4], self._time_buffer[5], 0
             ))
 
+    @native
+    def _parse_coordinates(self, line_bytes: bytearray, start_idx: int) -> bool:
+        """Универсальный парсер координат из сообщений типа RMC, GGA, GLL.
+        Принимает только начальный индекс поля lat."""
+        # Широта (поле start_idx)
+        lat = _parse_degrees(
+            line_bytes,
+            self._comma_pos[start_idx] + 1, self._comma_pos[start_idx + 1],
+            self._comma_pos[start_idx + 1] + 1, self._comma_pos[start_idx + 2]
+        )
+        if lat is None:
+            return False
+        self.latitude = lat
+
+        # Долгота (поле start_idx + 2)
+        lon = _parse_degrees(
+            line_bytes,
+            self._comma_pos[start_idx + 2] + 1, self._comma_pos[start_idx + 3],
+            self._comma_pos[start_idx + 3] + 1, self._comma_pos[start_idx + 4]
+        )
+        if lon is None:
+            return False
+        self.longitude = lon
+
+        return True
 
     @native
     def _parse_rmc(self, line_bytes: bytearray, star_idx: int, comma_count: int) -> bool:
@@ -413,7 +434,7 @@ class LightNMEA:
                 self.reject_too_short += 1
             return False
 
-        # Mode Indicator
+        # Mode Indicator (поле 11)
         if comma_count >= 11:
             mode_st = self._comma_pos[10] + 1
             mode_en = star_idx
@@ -428,7 +449,7 @@ class LightNMEA:
         else:
             self.fix_mode = FIX_NOT_VALID
 
-        # Статус
+        # Статус (поле 2)
         s_st = self._comma_pos[1] + 1
         if line_bytes[s_st] != _A_CHAR:
             self.reset(RESET_RMC)
@@ -436,22 +457,13 @@ class LightNMEA:
 
         self.valid = True
 
-        # Время
+        # Время (поле 1)
         self.time = line_bytes[7:self._comma_pos[1]]
 
-        # Широта
-        self.latitude = _parse_degrees(
-            line_bytes,
-            self._comma_pos[2] + 1, self._comma_pos[3],
-            self._comma_pos[3] + 1, self._comma_pos[4]
-        )
-
-        # Долгота
-        self.longitude = _parse_degrees(
-            line_bytes,
-            self._comma_pos[4] + 1, self._comma_pos[5],
-            self._comma_pos[5] + 1, self._comma_pos[6]
-        )
+        # парсинг координат (RMC: start_idx = 2)
+        if not self._parse_coordinates(line_bytes, 2):
+            self.reset(RESET_RMC)
+            return False
 
         # Скорость и курс (один memoryview)
         rmc_mv = memoryview(line_bytes)
@@ -462,7 +474,7 @@ class LightNMEA:
         cr_st, cr_en = self._comma_pos[7] + 1, self._comma_pos[8]
         self.course = float(rmc_mv[cr_st:cr_en]) if cr_en > cr_st else None
 
-        # Дата
+        # Дата (поле 9)
         self.date = line_bytes[self._comma_pos[8] + 1:self._comma_pos[9]]
         return True
 
@@ -478,28 +490,39 @@ class LightNMEA:
         fix_st = self._comma_pos[5] + 1
         fix_en = self._comma_pos[6]
 
+        # Проверяю качество фикса (не '0' и не пусто)
         if fix_en > fix_st and line_bytes[fix_st] != _0_CHAR:
             fix_quality = int(gga_mv[fix_st:fix_en])
+
+            # Обновляю режим фикса из таблицы GGA
             if fix_quality < len(_GGA_QUALITY_FIX_MODE):
                 self.fix_mode = _GGA_QUALITY_FIX_MODE[fix_quality]
 
+            # парсинг координат (GGA: start_idx = 1)
+            if not self._parse_coordinates(line_bytes, 1):
+                self.reset(RESET_GGA)
+                return False
+
+            # Спутники (поле 7)
             sat_st, sat_en = self._comma_pos[6] + 1, self._comma_pos[7]
             self.satellites = int(gga_mv[sat_st:sat_en]) if sat_en > sat_st else 0
 
+            # HDOP (поле 8)
             hdop_st, hdop_en = self._comma_pos[7] + 1, self._comma_pos[8]
             self.hdop = float(gga_mv[hdop_st:hdop_en]) if hdop_en > hdop_st else None
 
+            # Высота (поле 9)
             alt_st, alt_en = self._comma_pos[8] + 1, self._comma_pos[9]
             self.altitude = float(gga_mv[alt_st:alt_en]) if alt_en > alt_st else None
 
+            # Если доверяю GGA, он становится основным источником valid
             if self._trust_gga:
                 self.valid = True
         else:
+            # Нет фикса (fix_quality == 0)
             if self._trust_gga:
                 self.valid = False
-            self.satellites = 0
-            self.hdop = None
-            self.altitude = None
+            self.reset(RESET_GGA)
 
         return True
 
@@ -545,21 +568,14 @@ class LightNMEA:
             self.valid = True
             self.time = line_bytes[self._comma_pos[4] + 1:self._comma_pos[5]]
 
-            self.latitude = _parse_degrees(
-                line_bytes,
-                self._comma_pos[0] + 1, self._comma_pos[1],
-                self._comma_pos[1] + 1, self._comma_pos[2]
-            )
-            self.longitude = _parse_degrees(
-                line_bytes,
-                self._comma_pos[2] + 1, self._comma_pos[3],
-                self._comma_pos[3] + 1, self._comma_pos[4]
-            )
+            # парсинг координат (GLL: start_idx = 0)
+            if not self._parse_coordinates(line_bytes, 0):
+                self.reset(RESET_RMC)
+                return False
             return True
         else:
-            self.valid = False
-            self.latitude = None
-            self.longitude = None
+            # Статус не 'A' - сбрасываю навигационные данные
+            self.reset(RESET_RMC)
             return True
 
 
