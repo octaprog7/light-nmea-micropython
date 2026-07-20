@@ -49,8 +49,10 @@ _JSON_ALTITUDE = f'"{_ALTITUDE}"'
 _JSON_TIME = f'"{_TIME}"'
 _JSON_DATE = f'"{_DATE}"'
 
-_CST_NAMES = ("GPS", "SBAS", "GLONASS", "BeiDou", "QZSS", "Galileo", "NavIC", "Multi-GNSS")
-_FIX_NAMES = ("No Fix", "2D", "3D", "RTK Fixed", "RTK Float", "DR", "GNSS+DR")
+# соответствует константам CST_* в nmea0183_parser.py
+_CST_NAMES = ("Unknown", "GPS", "GLONASS", "Galileo", "BeiDou", "QZSS", "NavIC", "Multi-GNSS")
+# соответствует константам FIX_* в nmea0183_parser.py
+_FIX_NAMES = ("Autonomous", "DGPS", "Estimated", "Not Valid", "RTK Fixed", "RTK Float")
 
 
 # === Вспомогательные функции форматирования ===
