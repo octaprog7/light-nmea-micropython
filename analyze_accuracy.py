@@ -62,6 +62,9 @@ def analyze_log(filename: str = LOG_FILENAME):
     hdop_sum = 0.0
     hdop_count = 0
 
+    # Для расчета истинного дрейфа (первая и последняя точка)
+    first_lat = first_lon = last_lat = last_lon = None
+
     # Чтение и обработка потока
     try:
         with open(filename, 'r', encoding=FILE_ENCODING) as f:
@@ -81,6 +84,13 @@ def analyze_log(filename: str = LOG_FILENAME):
                     continue
 
                 n += 1
+
+                # Запоминаю первую и последнюю точку для расчета дрейфа
+                last_lat = lat
+                last_lon = lon
+                if n == 1:
+                    first_lat = lat
+                    first_lon = lon
 
                 # Среднее значение и дисперсия
                 delta_lat = lat - mean_lat
@@ -134,13 +144,18 @@ def analyze_log(filename: str = LOG_FILENAME):
     lat_rad = math.radians(mean_lat)
     m_per_deg_lon = M_PER_DEG_LAT * math.cos(lat_rad)
 
+    # Радиус ошибки (2D, 1 sigma) - по теореме Пифагора
     err_lat_m = std_lat * M_PER_DEG_LAT
     err_lon_m = std_lon * m_per_deg_lon
-    avg_err_m = (err_lat_m + err_lon_m) / 2.0
+    err_2d_m = math.sqrt(err_lat_m ** 2 + err_lon_m ** 2)
 
-    span_lat_m = (max_lat - min_lat) * M_PER_DEG_LAT
-    span_lon_m = (max_lon - min_lon) * m_per_deg_lon
-    max_span_m = max(span_lat_m, span_lon_m)
+    drift_m = 0.0
+    # Дрейф: расстояние между первой и последней точкой теста
+    if first_lat is not None and last_lat is not None:
+        delta_lat_m = (last_lat - first_lat) * M_PER_DEG_LAT
+        delta_lon_m = (last_lon - first_lon) * m_per_deg_lon
+        drift_m = math.sqrt(delta_lat_m ** 2 + delta_lon_m ** 2)
+
 
     rtk_pct = 100.0 * rtk_count / n
     avg_hdop = hdop_sum / hdop_count if hdop_count > 0 else 0.0
@@ -154,8 +169,8 @@ def analyze_log(filename: str = LOG_FILENAME):
     print(MSG_COORD.format('Latitude', mean_lat, std_lat, min_lat, max_lat))
     print(MSG_COORD.format('Longitude', mean_lon, std_lon, min_lon, max_lon))
     print('')
-    print(MSG_ERROR_R.format(avg_err_m))
-    print(MSG_SPAN.format(max_span_m))
+    print(MSG_ERROR_R.format(err_2d_m))
+    print(MSG_SPAN.format(drift_m))
 
 
 if __name__ == '__main__':
