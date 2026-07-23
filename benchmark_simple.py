@@ -63,7 +63,7 @@ def benchmark_light_nmea():
             parser.parse_line(packet)
 
     end = get_time_ms()
-
+    gc.collect()
     mem_alloc_after = gc.mem_alloc()
 
     elapsed = get_time_diff(end, start)
@@ -106,7 +106,7 @@ def benchmark_micropygps():
                 gps.update(chr(char))
 
     end = get_time_ms()
-
+    gc.collect()
     mem_alloc_after = gc.mem_alloc()
 
     elapsed = get_time_diff(end, start)
