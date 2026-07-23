@@ -52,9 +52,9 @@ def benchmark_light_nmea():
     parser = LightNMEA()
     packets_count = len(TEST_PACKETS)
 
-    # Замеряем чистую память ДО теста
     gc.collect()
-    mem_before = gc.mem_free() if _IS_MPY else 0
+    # Замеряю обьем выделенной памяти ДО теста
+    mem_alloc_before = gc.mem_alloc() 
 
     start = get_time_ms()
 
@@ -64,15 +64,13 @@ def benchmark_light_nmea():
 
     end = get_time_ms()
 
-    # Замеряем память ПОСЛЕ теста строго ДО вызова gc.collect()
-    mem_after = gc.mem_free() if _IS_MPY else 0
+    mem_alloc_after = gc.mem_alloc()
 
     elapsed = get_time_diff(end, start)
     total_packets = ITERATIONS * packets_count
     speed = total_packets / (elapsed / 1000)
 
-    # Сколько памяти БЫЛО ВЫДЕЛЕНО за время работы алгоритма
-    mem_delta = mem_before - mem_after if mem_before > 0 else 0
+    mem_delta = mem_alloc_after - mem_alloc_before
 
     print(f"\n=== light_nmea ===")
     print(f"Пакетов обработано: {total_packets}")
@@ -96,9 +94,9 @@ def benchmark_micropygps():
     gps = MicropyGPS()
     packets_count = len(TEST_PACKETS)
 
-    # Замеряем чистую память ДО теста
+    # Замеряю обьем выделенной памяти ДО теста
     gc.collect()
-    mem_before = gc.mem_free() if _IS_MPY else 0
+    mem_alloc_before = gc.mem_alloc() 
 
     start = get_time_ms()
 
@@ -109,15 +107,13 @@ def benchmark_micropygps():
 
     end = get_time_ms()
 
-    # Замеряем память ПОСЛЕ теста строго ДО вызова gc.collect()
-    mem_after = gc.mem_free() if _IS_MPY else 0
+    mem_alloc_after = gc.mem_alloc()
 
     elapsed = get_time_diff(end, start)
     total_packets = ITERATIONS * packets_count
     speed = total_packets / (elapsed / 1000)
 
-    # Сколько памяти БЫЛО ВЫДЕЛЕНО за время работы алгоритма
-    mem_delta = mem_before - mem_after if mem_before > 0 else 0
+    mem_delta = mem_alloc_after - mem_alloc_before
 
     print(f"\n=== micropyGPS ===")
     print(f"Пакетов обработано: {total_packets}")
