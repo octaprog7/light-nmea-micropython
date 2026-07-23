@@ -630,3 +630,11 @@ class LightNMEA:
         if self._enable_diagnostics:
             self.reject_unknown_msg += 1
         return False
+
+    def is_valid(self) -> bool:
+        """Реализация интерфейса IGNSSParser."""
+        return self.valid
+
+    def get_constellation(self) -> int:
+        """Реализация интерфейса IGNSSParser."""
+        return self.constellation if self.constellation is not None else CST_UNKNOWN

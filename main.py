@@ -56,7 +56,7 @@ def main():
     print(f"Имитация потока данных из UART ({ITERATIONS} пакетов)...\n")
 
     stats.start()
-    step_show = ITERATIONS // 10
+    step_show = ITERATIONS // 5
 
     for idx in range(ITERATIONS):
         packet = get_nav_packet()

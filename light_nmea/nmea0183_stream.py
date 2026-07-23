@@ -83,6 +83,7 @@ def _get_msg_type(buf: bytes, start, end) -> int:
 
     return _MSG_UNKNOWN
 
+from light_nmea.gnss_parser_base import IGNSSParser
 
 class NMEAStreamReader:
     """Автоматический считыватель потоковых пакетов NMEA-0183 на MicroPython."""
@@ -159,7 +160,7 @@ class NMEAStreamReader:
         self._anti_spam_last_gga = 0
         self._anti_spam_last_rmc = 0
 
-    def read_available(self, parser, callback = None) -> int:
+    def read_available(self, parser: IGNSSParser, callback = None) -> int:
         """
         Считывает все доступные байты из UART, формирует пакеты и отправляет их парсеру.
 
@@ -212,7 +213,7 @@ class NMEAStreamReader:
                         recognized = parser.parse_line(l_buf, 0, pos)
                         # Вызов обработчика для статистики
                         if callback is not None:
-                            callback(recognized, parser.valid, parser.constellation)
+                            callback(recognized, parser.is_valid(), parser.get_constellation())
 
                         packets_processed += 1
                     pos = 0
