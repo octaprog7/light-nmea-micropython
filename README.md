@@ -358,6 +358,7 @@ light-nmea-mp/
 |-- README.md                # Project documentation (English)
 |-- analyze_accuracy.py      # Calculation of accuracy parameters based on the data in the gnss_log.txt file, which is created by the nmea_pc_logger.py script
 |-- nmea_pc_logger.py        # GNSS Data Logger - Record navigation data from a microcontroller to a CSV file
+|-- gnss_dashboard.py        # Version with extended functionality of nmea_pc_logger
 |-- visualize_gps.py         # GNSS Track Visualization Script (dependencies: pandas, folium)
 |
 |-- light_nmea/              # Isolated parser package (copy to MCU)
@@ -432,6 +433,8 @@ pip install pyserial
 
 ![NMEA PC Logger Terminal](assets/nmea_pc_logger.png)
 
+### Dashboard
+![GNSS Dashboard](assets/gnss_dash_brd.png)
 
 ## Authorship and License
 Copyright 2026 Roman Shevchik

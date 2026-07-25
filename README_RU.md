@@ -387,6 +387,7 @@ light-nmea-mp/
 |-- run_all_benchmarks.py    # Последовательный запуск всех бенчей
 |-- analyze_accuracy.py      # Расчет параметров точности на основе данных из файла gnss_log.txt, создаваемого скриптом nmea_pc_logger.py.
 |-- nmea_pc_logger.py        # GNSS-регистратор данных, записывает навигационные данные с микроконтроллера в CSV-файл.
+|-- gnss_dashboard.py        # Версия с расширенной функциональностью nmea_pc_logger
 |-- visualize_gps.py         # Скрипт визуализации GNSS-трека (зависимости: pandas, folium) 
 |
 |-- light_nmea/              # Изолированный пакет парсера (копировать на МК)
@@ -464,6 +465,8 @@ pip install pyserial
 
 ![Терминал регистратора NMEA PC](assets/nmea_pc_logger.png)
 
+### Дашбоард
+![Приборная панель GNSS](assets/gnss_dash_brd.png)
 
 ## Авторство и Лицензия
 
