@@ -54,6 +54,7 @@ FRAME_MARGIN = 2
 TITLE_OFFSET_X = 2
 LABEL_X_DEFAULT = 2  # Отступ метки по умолчанию (используется, если не переопределен)
 CONTENT_START_Y = 2
+PLACEHOLDER = "---"  # Заполнитель для отсутствующих значений
 
 # Цвета
 COLOR_ERROR = 1
@@ -500,7 +501,7 @@ class BaseWindow:
     @staticmethod
     def _fmt(value, fmt: str = "") -> str:
         if value is None or value == "":
-            return "---"
+            return PLACEHOLDER
         return f"{value:{fmt}}" if fmt else str(value)
 
     def draw(self, data: GNSSData, stats: DashboardStats) -> None:
@@ -520,9 +521,11 @@ class PositionWindow(BaseWindow):
     TITLE = "Positioning"
 
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
-        self._draw_labeled("Latitude: ", self._fmt(data.latitude, ".6f"))
-        self._draw_labeled("Longitude:", self._fmt(data.longitude, ".6f"))
-        self._draw_labeled("Altitude: ", f"{data.altitude:.1f} m" if data.altitude is not None else "--- m")
+        lat_str = f"{data.latitude:.6f}\u00B0" if data.latitude is not None else PLACEHOLDER
+        lon_str = f"{data.longitude:.6f}\u00B0" if data.longitude is not None else PLACEHOLDER
+        self._draw_labeled("Latitude: ", lat_str)
+        self._draw_labeled("Longitude:", lon_str)
+        self._draw_labeled("Altitude: ", f"{data.altitude:.1f} m" if data.altitude is not None else f"{PLACEHOLDER} m")
         self._draw_labeled("UTC Time: ", self._fmt(data.time))
         self._draw_labeled("UTC Date: ", self._fmt(data.date))
 
@@ -535,8 +538,9 @@ class GNSSWindow(BaseWindow):
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
         self._draw_labeled("Constellation:", self._fmt(data.constellation))
         self._draw_labeled("Satellites:   ", self._fmt(data.satellites))
-        self._draw_labeled("HDOP:         ", f"{data.hdop:.1f}" if data.hdop is not None else "---")
-        fix = data.fix_mode or "---"
+        hdop_str = f"{data.hdop:.1f}" if data.hdop is not None else PLACEHOLDER
+        self._draw_labeled("HDOP:         ", hdop_str)
+        fix = data.fix_mode or PLACEHOLDER
         attr = curses.A_REVERSE | curses.color_pair(COLOR_ERROR) if fix == "Not Valid" else 0
         self._draw_labeled("Fix Mode:     ", fix, value_attr=attr)
 
@@ -556,7 +560,7 @@ class MotionWindow(BaseWindow):
             pass
 
         speed_kmh = data.speed * _TO_KMH if data.speed is not None else 0.0
-        speed_str = f"{speed_kmh:.1f} km/h" if data.speed is not None else "--- km/h"
+        speed_str = f"{speed_kmh:.1f} km/h" if data.speed is not None else f"{PLACEHOLDER} km/h"
         self._draw_labeled("Speed:", speed_str)
 
         if data.course is not None:
@@ -564,11 +568,11 @@ class MotionWindow(BaseWindow):
             course_str = f"{data.course:.1f}° ({letter})"
         else:
             if data.speed is None or speed_kmh < STATIONARY_SPEED_KMH:
-                course_str = "--- (too slow)"
+                course_str = f"{PLACEHOLDER} (too slow)"
             elif data.fix_mode == "Not Valid":
-                course_str = "--- (no fix)"
+                course_str = f"{PLACEHOLDER} (no fix)"
             else:
-                course_str = "---"
+                course_str = PLACEHOLDER
         self._draw_labeled("Course:", course_str)
 
         if stats.stationary_timer > 0.0:
