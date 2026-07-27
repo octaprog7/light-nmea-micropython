@@ -40,58 +40,46 @@ import curses
 from typing import Optional, Tuple, List
 import serial.tools.list_ports
 
-
-# Общие постоянные
-
 # Serial / USB
 DEFAULT_BAUDRATE = 115200
-SERIAL_TIMEOUT_S = 0.05  # Таймаут чтения serial (секунды)
-RECONNECT_DELAY_S = 2.0  # Задержка между попытками реконнекта (секунды)
+SERIAL_TIMEOUT_S = 0.05
+RECONNECT_DELAY_S = 2.0
 
 # UI / Curses
-UI_TIMEOUT_MS = 50  # Таймаут getch для обновления UI (миллисекунды)
-CURSOR_VISIBLE = 0  # 0=скрыт, 1=видим, 2=полностью видим
-VK_ESCAPE = 27      # ASCII-код клавиши Escape
-DIVIDER_LENGTH = 20 # ширина разделителя
-
-# Цвета (индексы для curses.init_pair)
-COLOR_ERROR = 1  # Красный для ошибок / Not Valid
-COLOR_OK = 2  # Зелёный для статуса CONNECTED
-
-# Позиционирование текста в окнах
-FRAME_MARGIN = 2  # Отступ от рамки для содержимого (по X и Y)
-TITLE_OFFSET_X = 2  # Смещение заголовка от левого края
-
-# Позиции меток (X-координаты)
-LABEL_X = 2  # Начало меток (Label:)
-VALUE_X_POSITION = 14  # Начало значений для Position/Motion окон
-VALUE_X_GNSS = 18  # Начало значений для GNSS окна (длиннее метки)
-VALUE_X_STATUS = 2  # Для StatusWindow значения сразу после меток
-
-# Стартовая строка контента (после заголовка и рамки)
+UI_TIMEOUT_MS = 50
+CURSOR_VISIBLE = 0
+VK_ESCAPE = 27
+DIVIDER_LENGTH = 20
+FRAME_MARGIN = 2
+TITLE_OFFSET_X = 2
+LABEL_X_DEFAULT = 2  # Отступ метки по умолчанию (используется, если не переопределен)
 CONTENT_START_Y = 2
 
-# Компас
-FULL_CIRCLE_DEG = 360.0 # Полных градусов в окружности
-COMPASS_DIVISIONS = 8   # Количество направлений (N, NE, E, SE, S, SW, W, NW)
-COMPASS_OFFSET_DEG = 22.5   # Половина угла сектора (360 / 8 / 2)
-COMPASS_SECTOR_DEG = 45.0   # Угол одного сектора (360 / 8)
+# Цвета
+COLOR_ERROR = 1
+COLOR_OK = 2
 
-# CSV - файл
-CSV_FIELDS_COUNT = 12  # Ожидаемое количество полей в CSV-строке
+# Компас
+FULL_CIRCLE_DEG = 360.0
+COMPASS_DIVISIONS = 8
+COMPASS_OFFSET_DEG = 22.5
+COMPASS_SECTOR_DEG = 45.0
+
+# CSV
+CSV_FIELDS_COUNT = 12
 
 # Разделение экрана
-SPLIT_HORIZONTAL = 2  # Деление по вертикали (mid_h = h // SPLIT_HORIZONTAL)
-SPLIT_VERTICAL = 2  # Деление по горизонтали (mid_w = w // SPLIT_VERTICAL)
+SPLIT_HORIZONTAL = 2
+SPLIT_VERTICAL = 2
 
-# Анализ точности (стационарный режим)
-STATIONARY_SPEED_KMH = 2.0       # Порог скорости для считать модуль "неподвижным"
-STATIONARY_TIME_S = 60.0         # Время удержания порога для активации анализа (сек)
-M_PER_DEG_LAT = 111_320.0        # Метров в градусе широты
-MIN_POINTS_FOR_ACCURACY = 2      # Минимум точек для расчёта дисперсии
+# Анализ точности
+STATIONARY_SPEED_KMH = 2.0
+STATIONARY_TIME_S = 60.0
+M_PER_DEG_LAT = 111_320.0
+MIN_POINTS_FOR_ACCURACY = 2
 
 # Для пересчета
-_TO_KMH = 1.0  # Коэффициент перевода в км/ч
+_TO_KMH = 1.0
 
 # Логирование
 LOG_FILENAME = 'gnss_log.csv'
@@ -99,7 +87,7 @@ LOG_ENCODING = 'utf-8'
 LOG_TIMESTAMP_FMT = "%H:%M:%S"
 LOG_CSV_HEADER = "timestamp,valid,satellites,latitude,longitude,speed,course,altitude,time,date,constellation,fix_mode,hdop\n"
 
-# Проверка окружения (до импорта curses)
+# Проверка окружения
 def ensure_terminal() -> None:
     """Нужно убедиться, что переменная окружения TERM установлена для curses."""
     term = os.environ.get("TERM")
@@ -118,6 +106,7 @@ def ensure_terminal() -> None:
 
 
 ensure_terminal()
+
 
 # Модель данных
 class GNSSData:
@@ -146,7 +135,7 @@ class GNSSData:
 
     @classmethod
     def from_csv(cls, line: str) -> 'GNSSData':
-        """Парсит CSV-строку. ВыБрасывает ValueError при несовпадении числа полей."""
+        """Парсит CSV-строку. Выбрасывает ValueError при несовпадении числа полей."""
         parts = line.split(',')
         if len(parts) != cls.EXPECTED_FIELDS:
             raise ValueError(f"Ожидается {cls.EXPECTED_FIELDS} полей, получено {len(parts)}")
@@ -168,18 +157,14 @@ class GNSSData:
 
     @staticmethod
     def compass_letter(course: float) -> str:
-        """Преобразует курс (угол в градусах) в строковое обозначение стороны света.
-        Args:
-            course: Угол курса в градусах (0.0 - 360.0).
-        Returns:
-            Строка с направлением (N, NE, E, SE, S, SW, W, NW)."""
+        """Преобразует курс (угол в градусах) в строковое обозначение стороны света."""
         dirs = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
         idx = int((course % FULL_CIRCLE_DEG + COMPASS_OFFSET_DEG) / COMPASS_SECTOR_DEG) % COMPASS_DIVISIONS
         return dirs[idx]
 
 
-# Статистика дашборда
 class DashboardStats:
+    """Статистика и текущее состояние дашборда."""
     __slots__ = (
         'port', 'baudrate', 'success', 'errors',
         'disconnected', 'reconnects', 'is_stationary',
@@ -192,32 +177,25 @@ class DashboardStats:
         self.success = 0
         self.errors = 0
         self.disconnected = False
-        # кол-во пересоединений
         self.reconnects = 0
-        # неподвижный режим
         self.is_stationary = False
         self.stationary_timer = 0.0
         self.accuracy_tracker = AccuracyTracker()
-        # для логирования
-        self.log_writer: Optional[LogWriter] = None
+        self.log_writer: Optional['LogWriter'] = None
+
 
 class LogWriter:
     """Запись строки GNSS-данных от платы в CSV-файл с timestamp."""
     __slots__ = ('_file', '_filename', '_packet_count', '_is_writing')
 
     def __init__(self, filename: str = LOG_FILENAME):
-        # Имя CSV-файла для логирования."""
         self._filename = filename
-        # Дескриптор открытого файла (объект io.TextIOWrapper)
         self._file = None
-        # Счетчик строк данных, записанных в файл за текущую сессию
         self._packet_count = 0
-        # Флаг состояния: True, если файл открыт и запись идет без ошибок
         self._is_writing = False
         self._open()
 
     def _open(self) -> None:
-        """Открыть файл в режиме append, записать заголовок если файл пустой."""
         try:
             self._file = open(self._filename, 'a', encoding=LOG_ENCODING)
             if self._file.tell() == 0:
@@ -225,7 +203,7 @@ class LogWriter:
                 self._file.flush()
             self._is_writing = True
         except OSError as ex:
-            print(f"Ошибка открытия лога {self._filename}: {ex}", file=sys.stderr)
+            print(f"Error opening log {self._filename}: {ex}", file=sys.stderr)
             self._file = None
             self._is_writing = False
 
@@ -235,25 +213,16 @@ class LogWriter:
 
     @property
     def is_writing(self) -> bool:
-        """Возвращает True, если логирование активно."""
         return self._is_writing and self.is_open
 
     @property
     def lines_written(self) -> int:
-        """Количество записанных строк (без учёта заголовка)."""
-        return self._packet_count
-
-    @property
-    def packet_count(self) -> int:
-        """Синоним для lines_written (для совместимости)."""
         return self._packet_count
 
     def reset_count(self) -> None:
-        """Сброс счётчика пакетов (при реконнекте)."""
         self._packet_count = 0
 
     def write(self, raw_line: str) -> None:
-        """Записать строку с префиксом timestamp."""
         if self._file is None or self._file.closed:
             self._is_writing = False
             return
@@ -264,7 +233,7 @@ class LogWriter:
             self._packet_count += 1
             self._is_writing = True
         except OSError as ex:
-            print(f"Ошибка записи в лог: {ex}", file=sys.stderr)
+            print(f"Error writing to log: {ex}", file=sys.stderr)
             self._is_writing = False
 
     def close(self) -> None:
@@ -274,6 +243,7 @@ class LogWriter:
                 self._file.close()
             except OSError:
                 pass
+
 
 class AccuracyTracker:
     """Расчёт точности GNSS по алгоритму Уэлфорда."""
@@ -285,7 +255,6 @@ class AccuracyTracker:
     )
 
     def __init__(self):
-        # инициализация всех атрибутов
         self.n = 0
         self.mean_lat = 0.0
         self.mean_lon = 0.0
@@ -304,7 +273,6 @@ class AccuracyTracker:
         self.hdop_count = 0
 
     def reset(self) -> None:
-        """Сброс всех накопленных значений."""
         self.n = 0
         self.mean_lat = 0.0
         self.mean_lon = 0.0
@@ -342,7 +310,6 @@ class AccuracyTracker:
             if lon < self.min_lon: self.min_lon = lon
             if lon > self.max_lon: self.max_lon = lon
 
-        # Алгоритм Уэлфорда для дисперсии
         delta_lat = lat - self.mean_lat
         delta_lon = lon - self.mean_lon
         self.mean_lat += delta_lat / self.n
@@ -352,7 +319,6 @@ class AccuracyTracker:
         self.m2_lat += delta_lat * delta2_lat
         self.m2_lon += delta_lon * delta2_lon
 
-        # Статистика фикса и HDOP
         if data.fix_mode and data.fix_mode != "Not Valid":
             self.valid_fix_count += 1
         if data.hdop is not None:
@@ -373,13 +339,13 @@ class AccuracyTracker:
 
         err_lat_m = std_lat * M_PER_DEG_LAT
         err_lon_m = std_lon * m_per_deg_lon
-        err_2d_m = math.sqrt(err_lat_m**2 + err_lon_m**2)
+        err_2d_m = math.sqrt(err_lat_m ** 2 + err_lon_m ** 2)
 
         drift_m = 0.0
         if self.first_lat is not None and self.last_lat is not None:
             delta_lat_m = (self.last_lat - self.first_lat) * M_PER_DEG_LAT
             delta_lon_m = (self.last_lon - self.first_lon) * m_per_deg_lon
-            drift_m = math.sqrt(delta_lat_m**2 + delta_lon_m**2)
+            drift_m = math.sqrt(delta_lat_m ** 2 + delta_lon_m ** 2)
 
         valid_pct = 100.0 * self.valid_fix_count / self.n if self.n > 0 else 0.0
         avg_hdop = self.hdop_sum / self.hdop_count if self.hdop_count > 0 else 0.0
@@ -398,12 +364,12 @@ class AccuracyTracker:
             'max_lon': self.max_lon,
         }
 
-# ============================================================
-# 2. Парсер последовательного порта с реконнектом
-# ============================================================
+
+# ==============================================================================
+# ПАРСЕР ПОСЛЕДОВАТЕЛЬНОГО ПОРТА
+# ==============================================================================
 class SerialParser:
-    """Объединяет работу с serial-портом и bytearray-буфером.
-    Поддерживает реконнект без падения при недоступности порта."""
+    """Объединяет работу с serial-портом и bytearray-буфером."""
 
     def __init__(self, port: str, baudrate: int = DEFAULT_BAUDRATE, timeout: float = SERIAL_TIMEOUT_S):
         self.port = port
@@ -412,16 +378,12 @@ class SerialParser:
         self._ser: Optional[serial.Serial] = None
         self._buffer = bytearray()
         self._read = None
-        # Пробуем открыть при создании, но не падаем
         self._open()
 
     def _open(self) -> bool:
-        """Пытается открыть порт. Возвращает True при успехе."""
         try:
-            self._ser = serial.Serial(
-                self.port, baudrate=self.baudrate, timeout=self._timeout
-            )
-            self._read = self._ser.read  # Кэшируем метод
+            self._ser = serial.Serial(self.port, baudrate=self.baudrate, timeout=self._timeout)
+            self._read = self._ser.read
             return True
         except serial.SerialException:
             self._ser = None
@@ -429,7 +391,6 @@ class SerialParser:
             return False
 
     def reconnect(self) -> bool:
-        """Закрывает, открытый ранее, порт и пробует открыть его заново."""
         self.close()
         return self._open()
 
@@ -448,11 +409,6 @@ class SerialParser:
             self._read = None
 
     def poll(self) -> Tuple[Optional[GNSSData], bool, Optional[str]]:
-        """
-        Неблокирующая попытка прочитать одну полную CSV-строку.
-        Возвращает (data, is_error, raw_line). Если порт закрыт — (None, False, None).
-        raw_line — оригинальная строка до парсинга (для логирования).
-        """
         if not self.is_open:
             return None, False, None
 
@@ -474,61 +430,43 @@ class SerialParser:
         try:
             return GNSSData.from_csv(line_str), False, line_str
         except ValueError:
-            return None, True, line_str  # Даже битые строки логируем
+            return None, True, line_str
 
 
-# Базовое окно дашборда (приборная панель)
-# ============================================================
+# Базовый класс окна дашборда
 class BaseWindow:
     TITLE = "Window"
+    BOX_TL, BOX_TR, BOX_BL, BOX_BR = "┌", "┐", "└", "┘"
+    BOX_H, BOX_V = "─", "│"
 
-    BOX_TL = "┌"
-    BOX_TR = "┐"
-    BOX_BL = "└"
-    BOX_BR = "┘"
-    BOX_H = "─"
-    BOX_V = "│"
-
-    def __init__(self, win: 'curses.window'):
-        # Дескриптор окна curses (объект curses.window)
+    def __init__(self, win: 'curses.window', label_x: int = LABEL_X_DEFAULT, value_x: int = 14):
         self.win = win
-        # Кэшированная ссылка на метод addnstr для быстрого и безопасного вывода текста
+        self._label_x = label_x
+        self._value_x = value_x
         self._addstr = win.addnstr
-        # Кэшированная ссылка на метод erase для очистки окна перед перерисовкой
         self._erase = win.erase
-        # Кэшированная ссылка на метод noutrefresh для буферизации обновлений экрана
         self._noutrefresh = win.noutrefresh
-        # Кэшированная ссылка на метод getmaxyx для получения текущих размеров окна
         self._getmaxyx = win.getmaxyx
-        # Текущая вертикальная позиция курсора (координата Y) для автоматического вывода строк
-        self._cursor_y = CONTENT_START_Y  # ТЕКУЩАЯ ПОЗИЦИЯ Y
-
-    def _reset_cursor(self) -> None:
-        """Сброс курсора в начало области содержимого."""
         self._cursor_y = CONTENT_START_Y
 
-    def _draw_line(self, text: str, attr: int = 0, x: int = LABEL_X) -> None:
-        """Выводит строку и автоматически сдвигает курсор вниз."""
-        self._safe_addstr(self._cursor_y, x, text, attr)
+    def _reset_cursor(self) -> None:
+        self._cursor_y = CONTENT_START_Y
+
+    def _draw_line(self, text: str, attr: int = 0, x: int = None) -> None:
+        draw_x = x if x is not None else self._label_x
+        self._safe_addstr(self._cursor_y, draw_x, text, attr)
         self._cursor_y += 1
 
-    def _draw_labeled(
-            self,
-            label: str,
-            value: str,
-            value_x: int = VALUE_X_POSITION,
-            label_attr: int = curses.A_BOLD,
-            value_attr: int = 0,
-    ) -> None:
-        """Выводит метку + значение и сдвигает курсор вниз."""
-        self._safe_addstr(self._cursor_y, LABEL_X, label, label_attr)
-        self._safe_addstr(self._cursor_y, value_x, value, value_attr)
+    def _draw_labeled(self, label: str, value: str, value_x: int = None, label_attr: int = curses.A_BOLD,
+                      value_attr: int = 0) -> None:
+        vx = value_x if value_x is not None else self._value_x
+        self._safe_addstr(self._cursor_y, self._label_x, label, label_attr)
+        self._safe_addstr(self._cursor_y, vx, value, value_attr)
         self._cursor_y += 1
 
     def _draw_box(self) -> None:
         self._erase()
         max_y, max_x = self._getmaxyx()
-
         top = self.BOX_TL + self.BOX_H * (max_x - FRAME_MARGIN) + self.BOX_TR
         bottom = self.BOX_BL + self.BOX_H * (max_x - FRAME_MARGIN) + self.BOX_BR
 
@@ -570,7 +508,6 @@ class BaseWindow:
         self._reset_cursor()
         self._draw_content(data, stats)
 
-
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
         raise NotImplementedError
 
@@ -578,35 +515,33 @@ class BaseWindow:
         self._noutrefresh()
 
 
-# Конкретные окна
 class PositionWindow(BaseWindow):
+    """Окно широты и долготы"""
     TITLE = "Positioning"
 
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
         self._draw_labeled("Latitude: ", self._fmt(data.latitude, ".6f"))
         self._draw_labeled("Longitude:", self._fmt(data.longitude, ".6f"))
         self._draw_labeled("Altitude: ", f"{data.altitude:.1f} m" if data.altitude is not None else "--- m")
-        self._draw_labeled("UTC Time:", self._fmt(data.time))
-        self._draw_labeled("UTC Date:", self._fmt(data.date))
+        self._draw_labeled("UTC Time: ", self._fmt(data.time))
+        self._draw_labeled("UTC Date: ", self._fmt(data.date))
 
 
+# Окно
 class GNSSWindow(BaseWindow):
+    """Окно параметров GNSS"""
     TITLE = "GNSS Parameters"
 
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
-        self._draw_labeled("Constellation:", self._fmt(data.constellation), value_x=VALUE_X_GNSS)
-        self._draw_labeled("Satellites:   ", self._fmt(data.satellites), value_x=VALUE_X_GNSS)
-        self._draw_labeled("HDOP:         ", f"{data.hdop:.1f}" if data.hdop is not None else "---",
-                           value_x=VALUE_X_GNSS)
-
+        self._draw_labeled("Constellation:", self._fmt(data.constellation))
+        self._draw_labeled("Satellites:   ", self._fmt(data.satellites))
+        self._draw_labeled("HDOP:         ", f"{data.hdop:.1f}" if data.hdop is not None else "---")
         fix = data.fix_mode or "---"
         attr = curses.A_REVERSE | curses.color_pair(COLOR_ERROR) if fix == "Not Valid" else 0
-        self._draw_labeled("Fix Mode:     ", fix, value_x=VALUE_X_GNSS, value_attr=attr)
+        self._draw_labeled("Fix Mode:     ", fix, value_attr=attr)
 
 
 class MotionWindow(BaseWindow):
-    # TITLE задаётся динамически в методах
-
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
         if stats.is_stationary:
             self._draw_accuracy(stats.accuracy_tracker)
@@ -614,19 +549,16 @@ class MotionWindow(BaseWindow):
             self._draw_motion(data, stats)
 
     def _draw_motion(self, data: GNSSData, stats: DashboardStats) -> None:
-        # Динамический заголовок
         title_str = " Motion Dynamics "
         try:
             self._addstr(0, TITLE_OFFSET_X, title_str, len(title_str), curses.A_BOLD)
         except curses.error:
             pass
 
-        # Скорость
         speed_kmh = data.speed * _TO_KMH if data.speed is not None else 0.0
         speed_str = f"{speed_kmh:.1f} km/h" if data.speed is not None else "--- km/h"
         self._draw_labeled("Speed:", speed_str)
 
-        # Курс
         if data.course is not None:
             letter = GNSSData.compass_letter(data.course)
             course_str = f"{data.course:.1f}° ({letter})"
@@ -639,21 +571,15 @@ class MotionWindow(BaseWindow):
                 course_str = "---"
         self._draw_labeled("Course:", course_str)
 
-        # обратный отсчет
         if stats.stationary_timer > 0.0:
             remaining = STATIONARY_TIME_S - (time.monotonic() - stats.stationary_timer)
-            # Рисую, только если таймер активен и время ещё не вышло
             if 0 < remaining < STATIONARY_TIME_S:
-                secs = int(remaining)
-                # Вывожу тусклым цветом, чтобы не перетягивать внимание
-                self._draw_line(f"Accuracy mode in: {secs}s", curses.A_DIM)
+                self._draw_line(f"Accuracy mode in: {int(remaining)}s", curses.A_DIM)
 
     def _draw_accuracy(self, tracker: AccuracyTracker) -> None:
-        # Динамический заголовок для режима точности
         title_str = " Accuracy Analysis "
         try:
-            self._addstr(0, TITLE_OFFSET_X, title_str, len(title_str),
-                         curses.A_BOLD | curses.color_pair(COLOR_OK))
+            self._addstr(0, TITLE_OFFSET_X, title_str, len(title_str), curses.A_BOLD | curses.color_pair(COLOR_OK))
         except curses.error:
             pass
 
@@ -665,13 +591,14 @@ class MotionWindow(BaseWindow):
         self._draw_labeled("Points:       ", str(metrics['n']))
         self._draw_labeled("Valid Fix:    ", f"{metrics['valid_pct']:.1f}%")
         self._draw_labeled("Avg HDOP:     ", f"{metrics['avg_hdop']:.2f}")
-        self._draw_line("-" * 20, curses.A_DIM)
-        self._draw_labeled("2D Error(1 sigma): ", f"+/-{metrics['err_2d_m']:.2f} m",
+        self._draw_line("-" * DIVIDER_LENGTH, curses.A_DIM)
+        self._draw_labeled("2D Error(1\u03C3): ", f"+/-{metrics['err_2d_m']:.2f} m",
                            value_attr=curses.A_BOLD | curses.color_pair(COLOR_ERROR))
         self._draw_labeled("Drift:        ", f"~{metrics['drift_m']:.2f} m")
 
 
 class StatusWindow(BaseWindow):
+    """Окно состояния соединения с платой-поставщиком данных GNSS"""
     TITLE = "Connection Status"
 
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
@@ -688,40 +615,31 @@ class StatusWindow(BaseWindow):
         self._draw_line(f"Valid lines: {stats.success}")
         self._draw_line(f"Errors: {stats.errors}")
         self._draw_line(f"Reconnects: {stats.reconnects}")
+        self._draw_line("-" * DIVIDER_LENGTH, curses.A_DIM)
 
-        # логирование
-        self._draw_line(DIVIDER_LENGTH * "-", curses.A_DIM)  # Разделитель
-        if hasattr(stats, 'log_writer'):
-            log_writer = stats.log_writer
-            if log_writer.is_writing:
-                log_attr = curses.A_BOLD | curses.color_pair(COLOR_OK)
-                self._draw_line(f"Logging: ACTIVE", log_attr)
+        if stats.log_writer:
+            lw = stats.log_writer
+            if lw.is_writing:
+                self._draw_line("Logging: ACTIVE", curses.A_BOLD | curses.color_pair(COLOR_OK))
             else:
                 self._draw_line("Logging: INACTIVE", curses.A_DIM)
-            self._draw_line(f"Lines written: {log_writer.lines_written}")
+            self._draw_line(f"Lines written: {lw.lines_written}")
 
 
-# Панель приборов с реконнектом
 class Dashboard:
-    """Координирует расположение окон, парсер и цикл отрисовки.
-    Обеспечивает автоматический реконнект при обрыве связи."""
+    """Координирует расположение окон, парсер и цикл отрисовки."""
     WINDOWS = (PositionWindow, GNSSWindow, MotionWindow, StatusWindow)
     RECONNECT_DELAY = RECONNECT_DELAY_S
 
     def __init__(self, stdscr: 'curses.window', parser: SerialParser):
-        # Главный объект окна curses (stdscr)
         self.stdscr = stdscr
-        # Экземпляр парсера последовательного порта
         self.parser = parser
-        # Актуальные данные GNSS, полученные от парсера
         self.data = GNSSData()
-        # Статистика и текущее состояние дашборда (счетчики, флаги режимов)
         self.stats = DashboardStats(parser.port, parser.baudrate)
-        #
         self.stats.disconnected = not parser.is_open
-        # Менеджер записи сырых данных в CSV-файл (LogWriter)
         self.log_writer = LogWriter()
         self.stats.log_writer = self.log_writer
+
         self._configure_curses()
         self._build_layout()
 
@@ -730,8 +648,6 @@ class Dashboard:
         self._last_reconnect_attempt = 0.0
 
     def _configure_curses(self) -> None:
-        """Инициализирует и настраивает параметры библиотеки curses.
-        Скрывает курсор, включает неблокирующий режим ввода и инициализирует цветовые пары."""
         curses.curs_set(CURSOR_VISIBLE)
         self.stdscr.nodelay(True)
         self.stdscr.timeout(UI_TIMEOUT_MS)
@@ -741,26 +657,25 @@ class Dashboard:
         curses.init_pair(COLOR_OK, curses.COLOR_GREEN, -1)
 
     def _build_layout(self) -> None:
-        """Рассчитывает размеры и создает окна интерфейса в зависимости от текущего размера терминала.
-        Инициализирует панели дашборда (позиционирование, GNSS, динамика"""
+        """Рассчитывает размеры и создает окна, передавая им их внутренние координаты."""
         h, w = self.stdscr.getmaxyx()
         mid_h = h // SPLIT_HORIZONTAL
         mid_w = w // SPLIT_VERTICAL
+
+        # Формат: (height, width, y, x, WindowClass, label_x, value_x)
         specs = (
-            (mid_h, mid_w, 0, 0),
-            (mid_h, w - mid_w, 0, mid_w),
-            (h - mid_h, mid_w, mid_h, 0),
-            (h - mid_h, w - mid_w, mid_h, mid_w),
+            (mid_h, mid_w, 0, 0, PositionWindow, 2, 14),
+            (mid_h, w - mid_w, 0, mid_w, GNSSWindow, 2, 18),
+            (h - mid_h, mid_w, mid_h, 0, MotionWindow, 2, 20),  # 20 для "2D Error(1σ): "
+            (h - mid_h, w - mid_w, mid_h, mid_w, StatusWindow, 2, 2),
         )
+
         self.panels: List[BaseWindow] = []
-        for cls, (ph, pw, py, px) in zip(self.WINDOWS, specs):
+        for ph, pw, py, px, cls, lx, vx in specs:
             win = curses.newwin(ph, pw, py, px)
-            self.panels.append(cls(win))
+            self.panels.append(cls(win, label_x=lx, value_x=vx))
 
     def _handle_input(self) -> bool:
-        """Обрабатывает пользовательский ввод с клавиатуры.
-        Возвращает True для завершения главного цикла (при нажатии 'q')
-        и перестраивает макет при изменении размера терминала."""
         key = self._getch()
         if key in (ord('q'), ord('Q'), VK_ESCAPE):
             return True
@@ -769,7 +684,6 @@ class Dashboard:
         return False
 
     def _try_reconnect(self) -> None:
-        """Попытка переподключения с ограничением частоты."""
         now = time.monotonic()
         if now - self._last_reconnect_attempt < self.RECONNECT_DELAY:
             return
@@ -778,19 +692,14 @@ class Dashboard:
         if self.parser.reconnect():
             self.stats.disconnected = False
             self.stats.reconnects += 1
-            # Сброс счётчиков как в логгере — новая сессия
             self.stats.success = 0
             self.stats.errors = 0
-            self.log_writer.reset_count()  # сброс счётчика логов
+            self.log_writer.reset_count()
 
     def _poll_serial(self) -> None:
-        """Выполняет неблокирующий опрос serial-парсера.
-        Обновляет модель данных GNSS, инкрементирует счетчики статистики,
-        управляет таймером стационарного режима и обрабатывает ошибки отключения порта."""
         try:
             data, is_error, raw_line = self.parser.poll()
 
-            # Логирование сырой строки (даже если битая)
             if raw_line is not None:
                 self.log_writer.write(raw_line)
 
@@ -798,7 +707,6 @@ class Dashboard:
                 self.data = data
                 self.stats.success += 1
 
-                # Логика определения стационарности/неподвижности
                 speed_kmh = data.speed * _TO_KMH if data.speed is not None else 0.0
                 now = time.monotonic()
 
@@ -815,7 +723,6 @@ class Dashboard:
                     self.stats.is_stationary = False
                     self.stats.stationary_timer = 0.0
                     self.stats.accuracy_tracker.reset()
-
             elif is_error:
                 self.stats.errors += 1
         except (serial.SerialException, OSError):
@@ -830,7 +737,6 @@ class Dashboard:
         self._doupdate()
 
     def run(self) -> None:
-        """Главный цикл с авто-реконнектом."""
         handle_input = self._handle_input
         poll_serial = self._poll_serial
         render = self._render
@@ -840,30 +746,23 @@ class Dashboard:
             while True:
                 if handle_input():
                     break
-
                 if self.stats.disconnected:
                     try_reconnect()
                 else:
                     poll_serial()
-
                 render()
         except serial.SerialException:
             pass
 
 
+# Авто определение порта для связи с платой - поставщиком данных
 def detect_port() -> str:
-    """Автоматически находит первый доступный USB-UART порт."""
-    # Вернёт все подключённые устройства, даже если они заняты!
-    # Например: ['/dev/ttyACM0', '/dev/ttyUSB0']
     ports = serial.tools.list_ports.comports()
-
     for port_info in ports:
-        # Фильтрую по признакам USB-устройств (CDC или адаптеры)
         device = port_info.device
         if "ttyACM" in device or "ttyUSB" in device:
             return device
 
-    # если list_ports не сработал (например, в редких SBC)
     if os.path.exists("/dev/ttyACM0"):
         return "/dev/ttyACM0"
     if os.path.exists("/dev/ttyUSB0"):
@@ -873,20 +772,7 @@ def detect_port() -> str:
 
 
 def parse_args() -> Tuple[str, int]:
-    """Парсит аргументы командной строки для настройки подключения.
-
-    Автоматически определяет доступный порт с помощью detect_port(),
-    если не указан явно. Использует DEFAULT_BAUDRATE,
-    но позволяет переопределить это через второй аргумент командной строки.
-
-    Returns:
-        Tuple[str, int]: Кортеж (порт, скорость передачи).
-
-    Примеры использования:
-        python3 gnss_dashboard.py                    # Автопорт, 115200
-        python3 gnss_dashboard.py /dev/ttyUSB1       # порт /dev/ttyUSB1, 115200
-        python3 gnss_dashboard.py /dev/ttyACM0 9600  # Порт и скорость
-    """
+    """Парсит аргументы командной строки"""
     port = detect_port()
     baudrate = DEFAULT_BAUDRATE
 
@@ -903,12 +789,11 @@ def parse_args() -> Tuple[str, int]:
 
 
 def main(stdscr: 'curses.window') -> None:
-    """Главная функция"""
     port, baudrate = parse_args()
     parser = SerialParser(port, baudrate=baudrate)
     dashboard = Dashboard(stdscr, parser)
     try:
-        Dashboard(stdscr, parser).run()
+        dashboard.run()  # ИСПРАВЛЕНО: был вызов конструктора второй раз
     finally:
         parser.close()
         dashboard.log_writer.close()
@@ -922,7 +807,7 @@ if __name__ == "__main__":
         sys.exit(1)
     except KeyboardInterrupt:
         pass
-    except _curses.error as e:
+    except curses.error as e:  # ИСПРАВЛЕНО: _curses.error -> curses.error
         print(f"curses error: {e}", file=sys.stderr)
         print("Make sure you run the script from an interactive terminal.", file=sys.stderr)
         sys.exit(1)
