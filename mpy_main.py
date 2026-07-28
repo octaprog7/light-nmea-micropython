@@ -46,6 +46,9 @@ parser = LightNMEA(trust_gga_fix=True, enable_diagnostics=True)
 stats = GPSStats()
 rtc = RTC()
 rtc_synced = False
+# 15 секунд без приема данных от GNSS модуля приводят
+# к ПОПЫТКЕ программного сброса модуля GNSS-приемника!
+WATCHDOG_TIMEOUT_MS = const(15000)
 
 _DATE_LENGTH = const(6)  # DDMMYY
 _MONTHS_30_DAYS = 4, 6, 9, 11  # На уровне модуля
@@ -86,7 +89,7 @@ def _print_packet_data(my_parser, gnss_only: bool = True) -> None:
     if gnss_only:
         print(to_format(my_parser, FMT_CSV))
         return
-    print("--- Пакет с фиксом ---")
+    print("--- Packet with fix ---")
     print(to_format(my_parser, FMT_CSV))
     print("--------------------")
 
@@ -108,6 +111,90 @@ def calc_uart_timeout(baudrate: int, max_length: int = _MAX_NMEA_LENGTH, safety_
     # Таймаут с запасом
     time_out_ms = int(t_string_ms * safety_factor) + 1  # +1 для округления вверх
     return time_out_ms
+
+# ID типов GNSS-модулей
+MODULE_UNKNOWN = const(0)
+MODULE_UBLOX = const(1)
+MODULE_QUECTEL = const(2)
+MODULE_MEDIATEK = const(3)
+
+# ID типов системных сообщений для хоста (ПК)
+MSG_TYPE_MODULE_DETECTED = const(1)
+MSG_TYPE_SOFTWARE_RESET = const(2)
+MSG_TYPE_WATCHDOG_TRIGGERED = const(3)
+
+def send_to_host(msg_type_id: int, msg: str) -> int | None:
+    """Отправляет форматированное системное сообщение хосту (ПК).
+    Формат: SYS_MSG:<type_id>:<message>\\r\\n
+    """
+    print(f"SYS_MSG:{msg_type_id}:{msg}")
+
+def gnss_module_id_to_str(gnss_module_id: int)->str:
+    """Возвращает производителя GNSS модуля по его ID"""
+    if MODULE_UBLOX == gnss_module_id:
+        return 'UBLOX'
+    if MODULE_QUECTEL == gnss_module_id:
+        return 'QUECTEL'
+    if MODULE_MEDIATEK == gnss_module_id:
+        return 'MEDIATEK'
+    return 'Unknown'
+
+def detect_gnss_module_type(in_uart: UART, timeout: int = 2000) -> int:
+    """Определяет тип GNSS-модуля по ответу на запрос версии.
+    Returns:
+        Целочисленный ID типа модуля (MODULE_UBLOX, MODULE_QUECTEL и т.д.)
+    """
+
+    def _probe(command: bytes) -> None | bytes:
+        """Отправляет команду и возвращает ответ (или None)."""
+        in_uart.flush()
+        in_uart.write(command)
+        time.sleep_ms(timeout)
+        if in_uart.any():
+            return in_uart.read(in_uart.any())
+        return None
+
+    # Пробую u-blox (UBX-MON-VER)
+    resp = _probe(b'\xB5\x62\x0A\x04\x00\x00\x0E\x34')
+    if resp and (b'ROM' in resp or b'PROT' in resp or b'FWVER' in resp):
+        return MODULE_UBLOX
+
+    # Пробую Quectel/MediaTek (PMTK605)
+    resp = _probe(b"$PMTK605*31\r\n")
+    if resp and b'PMTK' in resp:
+        is_quectel = b'Quectel' in resp
+        return MODULE_QUECTEL if is_quectel else MODULE_MEDIATEK
+
+    # Неизвестный модуль
+    return MODULE_UNKNOWN
+
+
+def send_gnss_reset(reset_uart: UART, module_id: int, show_info: bool) -> None:
+    """Отправляет команды сброса в GNSS-модуль."""
+    if module_id == MODULE_UBLOX:
+        commands = (b'\xB5\x62\x06\x04\x04\x00\xFF\xFF\x00\x00\x09\x82',)
+    elif module_id in (MODULE_QUECTEL, MODULE_MEDIATEK):
+        commands = (b"$PMTK104*37\r\n",)
+    else:
+        commands = (
+            b'\xB5\x62\x06\x04\x04\x00\xFF\xFF\x00\x00\x09\x82',
+            b"$PMTK104*37\r\n",
+            b"$PGRMO,PGRMO,2*27\r\n",
+        )
+
+    delay_ms = 50 if len(commands) > 1 else 100
+
+    if show_info:
+        print(f"GNSS: Sending {len(commands)} reset command(s) for ID {module_id}...")
+    for cmd in commands:
+        reset_uart.write(cmd)
+        time.sleep_ms(delay_ms)
+
+    if show_info:
+        print("GNSS: Reset sent, waiting for reboot...")
+    time.sleep_ms(3000)
+    # Очистка буфера от мусора после перезагрузки
+    reset_uart.flush()
 
 
 timeout_ms = calc_uart_timeout(UART_BAUDRATE, max_length=_MAX_NMEA_LENGTH_EXTENDED, safety_factor=3.0)
@@ -132,14 +219,23 @@ def stats_callback(recognized, valid, constellation):
 reader = NMEAStreamReader(uart)
 reader.set_anti_spam_interval(100)
 
+current_module_id = detect_gnss_module_type(uart, timeout=2000)
+module_name = gnss_module_id_to_str(current_module_id)
+if not only_gnss:
+    print(f"Detected GNSS module: {module_name}")
+# Отправляю хосту информацию о производителе модуля GNSS, подключенного по UART к плате с MicroPython
+send_to_host(MSG_TYPE_MODULE_DETECTED, module_name)
 
 # === Главный цикл ===
 stats.start()
 if not only_gnss:
-    print(f"Свободно ОЗУ [КБ]: {stats.get_memory_usage()}")
+    print(f"Free RAM [KB]: {stats.get_memory_usage()}")
 gc_counter = 0
 _RTC_SYNC_MAX_ATTEMPTS = const(5)
 rtc_sync_attempts = 0
+last_data_time_ms = time.ticks_ms()
+last_module_info_time = time.ticks_ms()
+MODULE_INFO_INTERVAL_MS = const(30_000)  # Отправлять имя модуля каждые 30 секунд
 
 try:
     last_time_from_gnss = b""
@@ -148,6 +244,7 @@ try:
         processed = reader.read_available(parser, stats_callback)
 
         if processed > 0:
+            last_data_time_ms = time.ticks_ms()
             # Обработка координат
             if parser.has_coordinates():
                 # Синхронизация RTC при первом фиксе
@@ -157,15 +254,15 @@ try:
                         parser.sync_hardware_rtc(rtc)
                         rtc_synced = True
                         if not only_gnss:
-                            print(f"RTC синхронизирован: {parser.date} {par_time}")
+                            print(f"RTC is synchronized: {parser.date} {par_time}")
                     except Exception as e:
                         rtc_sync_attempts += 1
                         if not only_gnss:
-                            print(f"Ошибка синхронизации RTC ({rtc_sync_attempts}/{_RTC_SYNC_MAX_ATTEMPTS}): {e}")
+                            print(f"RTC synchronization error ({rtc_sync_attempts}/{_RTC_SYNC_MAX_ATTEMPTS}): {e}")
                         if rtc_sync_attempts >= _RTC_SYNC_MAX_ATTEMPTS:
                             rtc_synced = True  # Сдаюсь после _RTC_SYNC_MAX_ATTEMPTS попыток
                             if not only_gnss:
-                                print(f"RTC недоступен после {_RTC_SYNC_MAX_ATTEMPTS} попыток, синхронизация отключена!")
+                                print(f"RTC not available after {_RTC_SYNC_MAX_ATTEMPTS} attempts, synchronization disabled!")
 
                 if par_time != last_time_from_gnss and parser.hdop is not None:
                     # Вывод данных пакета при наличии фикса
@@ -176,27 +273,42 @@ try:
             # Вывод статистики
             if not only_gnss:
                 if stats.total % STATS_PRINT_LIMIT == 0:
-                    print(f"Пакетов: {stats.total}, Фикс: {stats.valid_fix}, Поиск: {stats.no_fix}, Отклонено: {stats.rejected}, Анти-спам: {reader.anti_spam_dropped}")                    
+                    print(f"Пакетов: {stats.total}, Фикс: {stats.valid_fix}, Поиск: {stats.no_fix}, Отклонено: {stats.rejected}, Анти-спам: {reader.anti_spam_dropped}")
 
             # Принудительный GC
             gc_counter += processed
             if gc_counter >= GC_CALL_LIMIT:
                 gc.collect()
                 gc_counter = 0
+        else:
+            # WATCHDOG. Данные не приходят
+            elapsed = time.ticks_diff(time.ticks_ms(), last_data_time_ms)
+            if elapsed > WATCHDOG_TIMEOUT_MS:
+                if not only_gnss:
+                    print(f"!!! WATCHDOG: No data incoming {elapsed} ms. Software module reset !")
+                # Уведомляю Host о программном сбросе!
+                send_to_host(MSG_TYPE_SOFTWARE_RESET, "software reset started")
+                send_gnss_reset(uart, current_module_id, not only_gnss)
+                last_data_time_ms = time.ticks_ms()
+            else:
+                # Короткая пауза, чтобы не грузить CPU, если данных нет
+                time.sleep_ms(10)
 
-        # Пауза только если нет данных
-        if processed == 0:
-            time.sleep_ms(10)
+        # отправка имени производителя GNSS приемника
+        # напоминаю ПК о типе модуля
+        if time.ticks_diff(time.ticks_ms(), last_module_info_time) > MODULE_INFO_INTERVAL_MS:
+            send_to_host(MSG_TYPE_MODULE_DETECTED, module_name)
+            last_module_info_time = time.ticks_ms()
 
 except KeyboardInterrupt:
     if not only_gnss:
-        print("\nОстановка...")
+        print("\nStop...")
         stats.report()
         GPSStats.print_reject_stats(parser)
         GPSStats.print_state(parser)
-        print(f"Оборвано пакетов: {reader.packets_aborted}")
+        print(f"Number of packets broken: {reader.packets_aborted}")
         if 'uart' in locals():
             uart.deinit()
 
 if not only_gnss:
-    print(f"Свободно ОЗУ [КБ]: {stats.get_memory_usage()}")
+    print(f"Free RAM [KB]: {stats.get_memory_usage()}")
