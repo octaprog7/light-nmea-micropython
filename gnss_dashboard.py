@@ -133,11 +133,11 @@ def draw_window_title(win: 'curses.window', title: str, attr: int = curses.A_BOL
         pass
 
 
-# Цветовые атрибуты (вынесены в константы)
-ATTR_OK = curses.A_BOLD | curses.color_pair(COLOR_OK)
-ATTR_ERROR = curses.A_BOLD | curses.color_pair(COLOR_ERROR)
-ATTR_ERROR_REVERSE = curses.A_REVERSE | curses.color_pair(COLOR_ERROR)
-ATTR_DIM = curses.A_DIM
+# Цветовые атрибуты (инициализируются после запуска curses). Смотри _configure_curses.
+ATTR_OK = 0
+ATTR_ERROR = 0
+ATTR_ERROR_REVERSE = 0
+ATTR_DIM = 0
 
 
 # Проверка окружения
@@ -283,7 +283,8 @@ class LogWriter:
             self._is_writing = False
             return
         try:
-            timestamp = time.strftime(LOG_TIMESTAMP_FMT)
+            # UTC time
+            timestamp = time.strftime(LOG_TIMESTAMP_FMT, time.gmtime())
             self._file.write(f"{timestamp},{raw_line}\n")
             self._file.flush()
             self._packet_count += 1
@@ -713,6 +714,12 @@ class Dashboard:
         curses.use_default_colors()
         curses.init_pair(COLOR_ERROR, curses.COLOR_RED, -1)
         curses.init_pair(COLOR_OK, curses.COLOR_GREEN, -1)
+        # Инициализация цветовых атрибутов ПОСЛЕ curses.start_color()
+        global ATTR_OK, ATTR_ERROR, ATTR_ERROR_REVERSE, ATTR_DIM
+        ATTR_OK = curses.A_BOLD | curses.color_pair(COLOR_OK)
+        ATTR_ERROR = curses.A_BOLD | curses.color_pair(COLOR_ERROR)
+        ATTR_ERROR_REVERSE = curses.A_REVERSE | curses.color_pair(COLOR_ERROR)
+        ATTR_DIM = curses.A_DIM
 
     def _build_layout(self) -> None:
         """Рассчитывает размеры и создает окна, передавая им их внутренние координаты."""
