@@ -41,7 +41,7 @@ from typing import Optional, Tuple, List
 import serial.tools.list_ports
 
 # Serial / USB
-DEFAULT_BAUDRATE = 115200
+DEFAULT_BAUDRATE = 115200 # 38400
 SERIAL_TIMEOUT_S = 0.05
 RECONNECT_DELAY_S = 2.0
 
@@ -69,6 +69,13 @@ COMPASS_SECTOR_DEG = 45.0
 # CSV
 CSV_FIELDS_COUNT = 12
 
+# Системные сообщения от MicroPython (MCU)
+MCU_MSG_MODULE_DETECTED = 1
+MCU_MSG_SOFTWARE_RESET = 2
+MCU_MSG_WATCHDOG_TRIGGERED = 3
+#
+DEFAULT_MODULE_NAME = "Unknown"
+
 # Разделение экрана
 SPLIT_HORIZONTAL = 2
 SPLIT_VERTICAL = 2
@@ -87,18 +94,63 @@ LOG_FILENAME = 'gnss_log.csv'
 LOG_ENCODING = 'utf-8'
 LOG_TIMESTAMP_FMT = "%H:%M:%S"
 LOG_CSV_HEADER = "timestamp,valid,satellites,latitude,longitude,speed,course,altitude,time,date,constellation,fix_mode,hdop\n"
+# префикс для системных сообщений, передаваемых микроконтроллером платы, под управлением MicroPython!
+SYS_MSG_PREFIX = "SYS_MSG:"
+# Активность логирования
+LOG_ACTIVITY_TIMEOUT_S = 10.0  # Если данных нет 10 секунд - считаю неактивным
+
+# Утилиты
+def now() -> float:
+    """Возвращает текущее время в секундах (monotonic)."""
+    return time.monotonic()
+
+
+def get_port_type(port: str) -> str:
+    """Определяет тип порта по имени устройства."""
+    return "USB-UART" if "ttyACM" in port or "ttyUSB" in port else "Serial"
+
+
+def format_speed(speed: Optional[float]) -> str:
+    """Форматирует скорость в км/ч."""
+    if speed is None:
+        return f"{PLACEHOLDER} km/h"
+    return f"{speed * _TO_KMH:.1f} km/h"
+
+
+def reset_stationary_state(stats: 'DashboardStats') -> None:
+    """Сбрасывает состояние стационарности и трекер точности."""
+    stats.is_stationary = False
+    stats.stationary_timer = 0.0
+    stats.accuracy_tracker.reset()
+
+
+def draw_window_title(win: 'curses.window', title: str, attr: int = curses.A_BOLD) -> None:
+    """Отрисовывает заголовок окна."""
+    title_str = f" {title} "
+    try:
+        win.addnstr(0, TITLE_OFFSET_X, title_str, len(title_str), attr)
+    except curses.error:
+        pass
+
+
+# Цветовые атрибуты (вынесены в константы)
+ATTR_OK = curses.A_BOLD | curses.color_pair(COLOR_OK)
+ATTR_ERROR = curses.A_BOLD | curses.color_pair(COLOR_ERROR)
+ATTR_ERROR_REVERSE = curses.A_REVERSE | curses.color_pair(COLOR_ERROR)
+ATTR_DIM = curses.A_DIM
+
 
 # Проверка окружения
 def ensure_terminal() -> None:
     """Нужно убедиться, что переменная окружения TERM установлена для curses."""
     term = os.environ.get("TERM")
-    if not term or term == "unknown":
+    if not term or term == DEFAULT_MODULE_NAME:
         if sys.stdout.isatty():
             os.environ["TERM"] = "xterm-256color"
         else:
             print(
-                "Ошибка: скрипт требует интерактивный терминал.\n"
-                "Запустите из терминала (не из IDE) или установите переменную окружения TERM:\n"
+                "Error: The script requires an interactive terminal..\n"
+                "Run from terminal (not from IDE) or set TERM environment variable:\n"
                 "  export TERM=xterm-256color\n"
                 "  python3 gnss_dashboard.py",
                 file=sys.stderr
@@ -139,7 +191,7 @@ class GNSSData:
         """Парсит CSV-строку. Выбрасывает ValueError при несовпадении числа полей."""
         parts = line.split(',')
         if len(parts) != cls.EXPECTED_FIELDS:
-            raise ValueError(f"Ожидается {cls.EXPECTED_FIELDS} полей, получено {len(parts)}")
+            raise ValueError(f"Expected {cls.EXPECTED_FIELDS} fields, got {len(parts)}")
 
         obj = cls()
         obj.valid = parts[0]
@@ -169,7 +221,7 @@ class DashboardStats:
     __slots__ = (
         'port', 'baudrate', 'success', 'errors',
         'disconnected', 'reconnects', 'is_stationary',
-        'stationary_timer', 'accuracy_tracker', 'log_writer'
+        'stationary_timer', 'accuracy_tracker', 'log_writer', 'gnss_module_name', 'software_resets', 'last_data_time'
     )
 
     def __init__(self, port: str, baudrate: int):
@@ -183,6 +235,9 @@ class DashboardStats:
         self.stationary_timer = 0.0
         self.accuracy_tracker = AccuracyTracker()
         self.log_writer: Optional['LogWriter'] = None
+        self.gnss_module_name = DEFAULT_MODULE_NAME
+        self.software_resets = 0
+        self.last_data_time = 0.0
 
 
 class LogWriter:
@@ -429,6 +484,8 @@ class SerialParser:
             return None, False, None
 
         try:
+            if SYS_MSG_PREFIX in line_str:
+                return None, False, line_str
             return GNSSData.from_csv(line_str), False, line_str
         except ValueError:
             return None, True, line_str
@@ -541,7 +598,7 @@ class GNSSWindow(BaseWindow):
         hdop_str = f"{data.hdop:.1f}" if data.hdop is not None else PLACEHOLDER
         self._draw_labeled("HDOP:         ", hdop_str)
         fix = data.fix_mode or PLACEHOLDER
-        attr = curses.A_REVERSE | curses.color_pair(COLOR_ERROR) if fix == "Not Valid" else 0
+        attr = ATTR_ERROR_REVERSE if fix == "Not Valid" else 0
         self._draw_labeled("Fix Mode:     ", fix, value_attr=attr)
 
 
@@ -553,14 +610,10 @@ class MotionWindow(BaseWindow):
             self._draw_motion(data, stats)
 
     def _draw_motion(self, data: GNSSData, stats: DashboardStats) -> None:
-        title_str = " Motion Dynamics "
-        try:
-            self._addstr(0, TITLE_OFFSET_X, title_str, len(title_str), curses.A_BOLD)
-        except curses.error:
-            pass
+        draw_window_title(self.win, "Motion Dynamics")
 
         speed_kmh = data.speed * _TO_KMH if data.speed is not None else 0.0
-        speed_str = f"{speed_kmh:.1f} km/h" if data.speed is not None else f"{PLACEHOLDER} km/h"
+        speed_str = format_speed(data.speed)
         self._draw_labeled("Speed:", speed_str)
 
         if data.course is not None:
@@ -576,16 +629,12 @@ class MotionWindow(BaseWindow):
         self._draw_labeled("Course:", course_str)
 
         if stats.stationary_timer > 0.0:
-            remaining = STATIONARY_TIME_S - (time.monotonic() - stats.stationary_timer)
+            remaining = STATIONARY_TIME_S - (now() - stats.stationary_timer)
             if 0 < remaining < STATIONARY_TIME_S:
-                self._draw_line(f"Accuracy mode in: {int(remaining)}s", curses.A_DIM)
+                self._draw_line(f"Accuracy mode in: {int(remaining)}s", ATTR_DIM)
 
     def _draw_accuracy(self, tracker: AccuracyTracker) -> None:
-        title_str = " Accuracy Analysis "
-        try:
-            self._addstr(0, TITLE_OFFSET_X, title_str, len(title_str), curses.A_BOLD | curses.color_pair(COLOR_OK))
-        except curses.error:
-            pass
+        draw_window_title(self.win, "Accuracy Analysis", ATTR_OK)
 
         metrics = tracker.get_metrics()
         if not metrics:
@@ -595,38 +644,43 @@ class MotionWindow(BaseWindow):
         self._draw_labeled("Points:       ", str(metrics['n']))
         self._draw_labeled("Valid Fix:    ", f"{metrics['valid_pct']:.1f}%")
         self._draw_labeled("Avg HDOP:     ", f"{metrics['avg_hdop']:.2f}")
-        self._draw_line("-" * DIVIDER_LENGTH, curses.A_DIM)
+        self._draw_line("-" * DIVIDER_LENGTH, ATTR_DIM)
         self._draw_labeled("2D Error(1\u03C3): ", f"+/-{metrics['err_2d_m']:.2f} m",
-                           value_attr=curses.A_BOLD | curses.color_pair(COLOR_ERROR))
+                           value_attr=ATTR_ERROR)
         self._draw_labeled("Drift:        ", f"~{metrics['drift_m']:.2f} m")
 
 
 class StatusWindow(BaseWindow):
-    """Окно состояния соединения с платой-поставщиком данных GNSS"""
     TITLE = "Connection Status"
 
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
-        port_type = "USB-UART" if "ttyACM" in stats.port or "ttyUSB" in stats.port else "Serial"
+        port_type = get_port_type(stats.port)
         self._draw_line(f"Port: {stats.port} ({port_type})")
+        self._draw_line(f"Module: {stats.gnss_module_name}")
         self._draw_line(f"Speed: {stats.baudrate} (USB max)")
 
         if stats.disconnected:
-            attr = curses.A_BOLD | curses.color_pair(COLOR_ERROR)
-            self._draw_line("Status: DISCONNECTED (reconnecting...)", attr)
+            self._draw_line("Status: DISCONNECTED (reconnecting...)", ATTR_ERROR)
         else:
-            self._draw_line("Status: CONNECTED", curses.A_BOLD | curses.color_pair(COLOR_OK))
+            self._draw_line("Status: CONNECTED", ATTR_OK)
 
         self._draw_line(f"Valid lines: {stats.success}")
         self._draw_line(f"Errors: {stats.errors}")
         self._draw_line(f"Reconnects: {stats.reconnects}")
-        self._draw_line("-" * DIVIDER_LENGTH, curses.A_DIM)
+        self._draw_line(f"SW Resets: {stats.software_resets}")
+        self._draw_line("-" * DIVIDER_LENGTH, ATTR_DIM)
 
         if stats.log_writer:
             lw = stats.log_writer
-            if lw.is_writing:
-                self._draw_line("Logging: ACTIVE", curses.A_BOLD | curses.color_pair(COLOR_OK))
+            # Проверяем реальную активность данных
+            if lw.is_writing and stats.last_data_time > 0:
+                time_since_data = now() - stats.last_data_time
+                if time_since_data < LOG_ACTIVITY_TIMEOUT_S:
+                    self._draw_line("Logging: ACTIVE", ATTR_DIM)
+                else:
+                    self._draw_line("Logging: INACTIVE (no data)", ATTR_DIM)
             else:
-                self._draw_line("Logging: INACTIVE", curses.A_DIM)
+                self._draw_line("Logging: INACTIVE", ATTR_DIM)
             self._draw_line(f"Lines written: {lw.lines_written}")
 
 
@@ -687,11 +741,41 @@ class Dashboard:
             self._build_layout()
         return False
 
-    def _try_reconnect(self) -> None:
-        now = time.monotonic()
-        if now - self._last_reconnect_attempt < self.RECONNECT_DELAY:
+    def _handle_sys_message(self, raw_line: str) -> None:
+        start_idx = raw_line.find(SYS_MSG_PREFIX)
+        if start_idx == -1:
             return
-        self._last_reconnect_attempt = now
+
+        msg_str = raw_line[start_idx:]
+        parts = msg_str.split(":", 2)
+        if len(parts) != 3:
+            return
+
+        try:
+            msg_type = int(parts[1])
+        except ValueError:
+            return
+
+        # Простая очистка: берём первое "слово" (отсекает \r\n и мусор)
+        payload = parts[2].split()[0] if parts[2].split() else ""
+
+        if msg_type == MCU_MSG_MODULE_DETECTED:
+            self.stats.gnss_module_name = payload
+        elif msg_type == MCU_MSG_SOFTWARE_RESET:
+            print(f"MCU: Software reset initiated ({payload})", file=sys.stderr)
+            self.stats.success = 0
+            self.stats.errors = 0
+            # Инкремент счётчика программных сбросов
+            self.stats.software_resets += 1
+            self.log_writer.reset_count()
+        elif msg_type == MCU_MSG_WATCHDOG_TRIGGERED:
+            print(f"MCU: Watchdog triggered ({payload})", file=sys.stderr)
+
+    def _try_reconnect(self) -> None:
+        current_time = now()  # <-- ЗАМЕНА
+        if current_time - self._last_reconnect_attempt < self.RECONNECT_DELAY:
+            return
+        self._last_reconnect_attempt = current_time
 
         if self.parser.reconnect():
             self.stats.disconnected = False
@@ -705,28 +789,31 @@ class Dashboard:
             data, is_error, raw_line = self.parser.poll()
 
             if raw_line is not None:
-                self.log_writer.write(raw_line)
+                # Обработка системных сообщений или логирование сырых данных
+                if SYS_MSG_PREFIX in raw_line:
+                    self._handle_sys_message(raw_line)
+                else:
+                    self.log_writer.write(raw_line)
 
             if data is not None:
                 self.data = data
                 self.stats.success += 1
+                self.stats.last_data_time = now()
 
                 speed_kmh = data.speed * _TO_KMH if data.speed is not None else 0.0
-                now = time.monotonic()
+                current_time = now()
 
                 if speed_kmh < STATIONARY_SPEED_KMH:
                     if not self.stats.is_stationary:
                         if self.stats.stationary_timer == 0.0:
-                            self.stats.stationary_timer = now
-                        elif now - self.stats.stationary_timer >= STATIONARY_TIME_S:
+                            self.stats.stationary_timer = current_time
+                        elif current_time - self.stats.stationary_timer >= STATIONARY_TIME_S:
                             self.stats.is_stationary = True
                             self.stats.accuracy_tracker.reset()
                     if self.stats.is_stationary:
                         self.stats.accuracy_tracker.add_point(data)
                 else:
-                    self.stats.is_stationary = False
-                    self.stats.stationary_timer = 0.0
-                    self.stats.accuracy_tracker.reset()
+                    reset_stationary_state(self.stats)
             elif is_error:
                 self.stats.errors += 1
         except (serial.SerialException, OSError):
