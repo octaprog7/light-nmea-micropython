@@ -99,6 +99,12 @@ SYS_MSG_PREFIX = "SYS_MSG:"
 # Активность логирования
 LOG_ACTIVITY_TIMEOUT_S = 10.0  # Если данных нет 10 секунд - считаю неактивным
 
+# Минимальная высота терминала
+MIN_TERM_HEIGHT = 24
+# Минимальная ширина терминала
+MIN_TERM_WIDTH = 80
+
+
 # Утилиты
 def now() -> float:
     """Возвращает текущее время в секундах (monotonic)."""
@@ -752,6 +758,20 @@ class Dashboard:
 
     def _build_layout(self) -> None:
         """Рассчитывает размеры и создает окна, передавая им их внутренние координаты."""
+        h, w = self.stdscr.getmaxyx()
+        # Если окно слишком маленькое, то предупреждение
+        if h < MIN_TERM_HEIGHT or w < MIN_TERM_WIDTH:
+            self.stdscr.erase()
+            msg = f"Terminal too small! Minimum: {MIN_TERM_WIDTH}x{MIN_TERM_HEIGHT}"
+            try:
+                self.stdscr.addstr(h // 2, max(0, (w - len(msg)) // 2), msg, curses.A_BOLD | curses.A_REVERSE)
+            except curses.error:
+                pass
+            self.stdscr.noutrefresh()
+            curses.doupdate()
+            self.panels = []  # Очищаю панели, чтобы не рисовать их
+            return
+
         h, w = self.stdscr.getmaxyx()
         mid_h = h // SPLIT_HORIZONTAL
         mid_w = w // SPLIT_VERTICAL
