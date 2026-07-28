@@ -82,7 +82,7 @@ SPLIT_VERTICAL = 2
 
 # Анализ точности
 STATIONARY_SPEED_KMH = 2.0
-STATIONARY_TIME_S = 60.0
+STATIONARY_TIME_S = 33.3
 M_PER_DEG_LAT = 111_320.0
 MIN_POINTS_FOR_ACCURACY = 2
 
@@ -125,7 +125,7 @@ def reset_stationary_state(stats: 'DashboardStats') -> None:
 
 
 def draw_window_title(win: 'curses.window', title: str, attr: int = curses.A_BOLD) -> None:
-    """Отрисовывает заголовок окна."""
+    """Выводит заголовок окна."""
     title_str = f" {title} "
     try:
         win.addnstr(0, TITLE_OFFSET_X, title_str, len(title_str), attr)
@@ -144,7 +144,7 @@ ATTR_DIM = 0
 def ensure_terminal() -> None:
     """Нужно убедиться, что переменная окружения TERM установлена для curses."""
     term = os.environ.get("TERM")
-    if not term or term == DEFAULT_MODULE_NAME:
+    if not term or term == "unknown":
         if sys.stdout.isatty():
             os.environ["TERM"] = "xterm-256color"
         else:
@@ -573,6 +573,21 @@ class BaseWindow:
     def noutrefresh(self) -> None:
         self._noutrefresh()
 
+    def _draw_conditional(self, condition: bool, true_text: str, false_text: str,
+                          true_attr: int = 0, false_attr: int = 0) -> None:
+        """Выводит строку с разным текстом и атрибутами в зависимости от условия."""
+        if condition:
+            self._draw_line(true_text, true_attr)
+        else:
+            self._draw_line(false_text, false_attr)
+
+    def _draw_labeled_conditional(self, label: str, value: str, condition: bool,
+                                   true_attr: int = 0, false_attr: int = 0,
+                                   value_x: int = None) -> None:
+        """Выводит метку со значением, атрибут которого зависит от условия."""
+        attr = true_attr if condition else false_attr
+        self._draw_labeled(label, value, value_x=value_x, value_attr=attr)
+
 
 class PositionWindow(BaseWindow):
     """Окно широты и долготы"""
@@ -598,9 +613,15 @@ class GNSSWindow(BaseWindow):
         self._draw_labeled("Satellites:   ", self._fmt(data.satellites))
         hdop_str = f"{data.hdop:.1f}" if data.hdop is not None else PLACEHOLDER
         self._draw_labeled("HDOP:         ", hdop_str)
+        # СТАЛО:
         fix = data.fix_mode or PLACEHOLDER
-        attr = ATTR_ERROR_REVERSE if fix == "Not Valid" else 0
-        self._draw_labeled("Fix Mode:     ", fix, value_attr=attr)
+        self._draw_labeled_conditional(
+            "Fix Mode:     ",
+            fix,
+            fix == "Not Valid",
+            ATTR_ERROR_REVERSE,
+            0
+        )
 
 
 class MotionWindow(BaseWindow):
@@ -660,10 +681,14 @@ class StatusWindow(BaseWindow):
         self._draw_line(f"Module: {stats.gnss_module_name}")
         self._draw_line(f"Speed: {stats.baudrate} (USB max)")
 
-        if stats.disconnected:
-            self._draw_line("Status: DISCONNECTED (reconnecting...)", ATTR_ERROR)
-        else:
-            self._draw_line("Status: CONNECTED", ATTR_OK)
+        # СТАЛО:
+        self._draw_conditional(
+            stats.disconnected,
+            "Status: DISCONNECTED (reconnecting...)",
+            "Status: CONNECTED",
+            ATTR_ERROR,
+            ATTR_OK
+        )
 
         self._draw_line(f"Valid lines: {stats.success}")
         self._draw_line(f"Errors: {stats.errors}")
@@ -676,10 +701,14 @@ class StatusWindow(BaseWindow):
             # Проверяем реальную активность данных
             if lw.is_writing and stats.last_data_time > 0:
                 time_since_data = now() - stats.last_data_time
-                if time_since_data < LOG_ACTIVITY_TIMEOUT_S:
-                    self._draw_line("Logging: ACTIVE", ATTR_DIM)
-                else:
-                    self._draw_line("Logging: INACTIVE (no data)", ATTR_DIM)
+                is_active = time_since_data < LOG_ACTIVITY_TIMEOUT_S
+                self._draw_conditional(
+                    is_active,
+                    "Logging: ACTIVE",
+                    "Logging: INACTIVE (no data)",
+                    ATTR_OK,
+                    ATTR_DIM
+                )
             else:
                 self._draw_line("Logging: INACTIVE", ATTR_DIM)
             self._draw_line(f"Lines written: {lw.lines_written}")
