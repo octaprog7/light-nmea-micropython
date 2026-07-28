@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import time
+from light_nmea.gnss_parser_base import IGNSSParser
 
 try:
     from micropython import const
@@ -273,7 +274,7 @@ def _get_constellation(talker_byte_1: int, talker_byte_2: int) -> int:
 
 # === Класс парсера ===
 
-class LightNMEA:
+class LightNMEA(IGNSSParser):
     """Парсер NMEA для MicroPython."""
 
     def __init__(self, trust_gga_fix: bool = False, enable_diagnostics: bool = False) -> None:
@@ -320,7 +321,7 @@ class LightNMEA:
 
     def reset(self, scope: int = RESET_ALL) -> None:
         """Сброс полей навигации. Простой и объединенный."""
-        # Cброс общий и для GGA, и для RMC, так как оба дают координаты
+        # Сброс общий и для GGA, и для RMC, так как оба дают координаты
         self.valid = False
         self.latitude = None
         self.longitude = None
