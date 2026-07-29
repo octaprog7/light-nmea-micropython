@@ -2,7 +2,7 @@
 # gnss_module_utils/__init__.py
 import time
 import struct
-from machine import UART
+from machine import Pin, UART
 from micropython import const
 from collections import namedtuple
 
