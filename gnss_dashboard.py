@@ -936,14 +936,19 @@ def parse_args() -> Tuple[str, int]:
 
 
 def main(stdscr: 'curses.window') -> None:
-    port, baudrate = parse_args()
-    parser = SerialParser(port, baudrate=baudrate)
+    # Перенаправляю stderr в файл
+    stderr_file = open('mcu_debug.log', 'a', encoding='utf-8')
+    sys.stderr = stderr_file
+
+    port, baud_rate = parse_args()
+    parser = SerialParser(port, baudrate=baud_rate)
     dashboard = Dashboard(stdscr, parser)
     try:
-        dashboard.run()  # ИСПРАВЛЕНО: был вызов конструктора второй раз
+        dashboard.run()
     finally:
         parser.close()
         dashboard.log_writer.close()
+        stderr_file.close()  # Закрываем файл логов при выходе
 
 
 if __name__ == "__main__":
