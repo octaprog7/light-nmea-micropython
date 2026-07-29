@@ -181,7 +181,8 @@ def gnss_mod_to_usb_bridge() -> None:
             processed = reader.read_available(parser, stats_callback)
 
             if processed > 0:
-                last_data_time_ms = time.ticks_ms()
+                if parser.valid: # сброс таймера при принятии данных от модуля GNSS
+                    last_data_time_ms = time.ticks_ms()
                 # Обработка координат
                 if parser.has_coordinates():
                     # Синхронизация RTC при первом фиксе
