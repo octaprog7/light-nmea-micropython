@@ -431,6 +431,9 @@ pip install pyserial
 
 ### PC Logger Output
 
+#### Data Flow
+![Data flow](assets/data_flow.png)
+
 ![NMEA PC Logger Terminal](assets/nmea_pc_logger.png)
 
 ### Dashboard

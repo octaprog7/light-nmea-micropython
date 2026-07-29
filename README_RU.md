@@ -463,6 +463,9 @@ pip install pyserial
 
 ### Вывод логгера на ПК
 
+#### Поток Данных
+![Поток данных](assets/data_flow.png)
+
 ![Терминал регистратора NMEA PC](assets/nmea_pc_logger.png)
 
 ### Дашбоард
