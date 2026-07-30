@@ -70,17 +70,17 @@ def calculate_grid_steps(center_lat):
     return step_lat, step_lon
 
 
-def draw_grid_line(gps_map, start_point, end_point):
+def draw_grid_line(gnss_map, start_point, end_point):
     """Draws a single thin gray line on the map layout using cached folium link."""
     folium.PolyLine(
         locations=[start_point, end_point],
         color=GRID_LINE_COLOR,
         weight=GRID_LINE_WEIGHT,
         opacity=GRID_LINE_OPACITY
-    ).add_to(gps_map)
+    ).add_to(gnss_map)
 
 
-def generate_metric_grid(gps_map, center_lat, center_lon):
+def generate_metric_grid(gnss_map, center_lat, center_lon):
     """Generates an adaptive bounding grid overlay on the map with cached step logic."""
     step_lat, step_lon = calculate_grid_steps(center_lat)
 
@@ -95,13 +95,13 @@ def generate_metric_grid(gps_map, center_lat, center_lon):
     # Draw horizontal grid lines (Latitude lanes)
     current_lat = start_lat
     while current_lat <= end_lat:
-        _add_line(gps_map, [current_lat, start_lon], [current_lat, end_lon])
+        _add_line(gnss_map, [current_lat, start_lon], [current_lat, end_lon])
         current_lat += step_lat
 
     # Draw vertical grid lines (Longitude lanes)
     current_lon = start_lon
     while current_lon <= end_lon:
-        _add_line(gps_map, [start_lat, current_lon], [end_lat, current_lon])
+        _add_line(gnss_map, [start_lat, current_lon], [end_lat, current_lon])
         current_lon += step_lon
 
 
@@ -110,7 +110,7 @@ def get_marker_timestamp(df, index):
     return "{} {}".format(df.iloc[index][FIELD_DATE], df.iloc[index][FIELD_TIME])
 
 
-def add_top_center_header(gps_map, points_count, grid_step):
+def add_top_center_header(gnss_map, points_count, grid_step):
     """Adds a fixed, styled top-center HTML header card with map metadata."""
     header_html = f"""
     <div style="
@@ -134,7 +134,7 @@ def add_top_center_header(gps_map, points_count, grid_step):
         Grid step: {grid_step:.1f} m | Total points: {points_count}
     </div>
     """
-    gps_map.get_root().html.add_child(folium.Element(header_html))
+    gnss_map.get_root().html.add_child(folium.Element(header_html))
 
 
 def main():
@@ -164,7 +164,7 @@ def main():
     df[FIELD_LATITUDE] = pd.to_numeric(df[FIELD_LATITUDE], errors='coerce')
     df[FIELD_LONGITUDE] = pd.to_numeric(df[FIELD_LONGITUDE], errors='coerce')
 
-    # Filter out invalid values and zeros (GPS modules without a fixed reference lock)
+    # Filter out invalid values and zeros (GNSS modules without a fixed reference lock)
     df_valid = df[df[FIELD_VALID] == VALID_FIX_VALUE].copy()
     df_valid = df_valid.dropna(subset=[FIELD_LATITUDE, FIELD_LONGITUDE])
     df_valid = df_valid[(df_valid[FIELD_LATITUDE] != 0) & (df_valid[FIELD_LONGITUDE] != 0)]
@@ -183,14 +183,14 @@ def main():
     center_lon = float(df_valid[FIELD_LONGITUDE].mean())
 
     print("Generating map layers...")
-    gps_map = folium.Map(
+    gnss_map = folium.Map(
         location=[center_lat, center_lon],
         tiles=MAP_TILES_URL,
         attr=MAP_ATTRIBUTION
     )
 
     # Append adaptive metric system grid lines layer
-    generate_metric_grid(gps_map, center_lat, center_lon)
+    generate_metric_grid(gnss_map, center_lat, center_lon)
 
     # Extract clean coordinate list structure for path rendering
     track_coords = df_valid[[FIELD_LATITUDE, FIELD_LONGITUDE]].values.tolist()
@@ -201,31 +201,31 @@ def main():
         color=TRACK_LINE_COLOR,
         weight=TRACK_LINE_WEIGHT,
         opacity=TRACK_LINE_OPACITY,
-        tooltip="GPS Track"
-    ).add_to(gps_map)
+        tooltip="GNSS Track"
+    ).add_to(gnss_map)
 
     # Render starting milestone flag (Green) - FIXED index slice bug here
     folium.Marker(
         location=track_coords[0],
         popup="Start<br>Time: {}".format(get_marker_timestamp(df_valid, 0)),
         icon=folium.Icon(color="green", icon="play-circle", prefix="fa")
-    ).add_to(gps_map)
+    ).add_to(gnss_map)
 
     # Render trailing terminus milestone flag (Red)
     folium.Marker(
         location=track_coords[-1],
         popup="End<br>Time: {}".format(get_marker_timestamp(df_valid, -1)),
         icon=folium.Icon(color="red", icon="stop-circle", prefix="fa")
-    ).add_to(gps_map)
+    ).add_to(gnss_map)
 
     # Add floating top-center header card with metrics metadata
-    add_top_center_header(gps_map, points_count, GRID_STEP_METERS)
+    add_top_center_header(gnss_map, points_count, GRID_STEP_METERS)
 
     # Automatically fit map view margins boundaries around the tracking path metrics
-    gps_map.fit_bounds(gps_map.get_bounds())
+    gnss_map.fit_bounds(gnss_map.get_bounds())
 
     # Save target interactive HTML layer
-    gps_map.save(OUTPUT_HTML)
+    gnss_map.save(OUTPUT_HTML)
     print(f"Success! Map rendering saved to: {OUTPUT_HTML}")
 
     # Automatically open the generated HTML file in the default web browser
