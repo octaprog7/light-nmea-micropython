@@ -93,7 +93,7 @@ def send_gnss_reset(reset_uart: UART, module_id: int, show_info: bool, reset_pin
         show_info: Если True, выводит отладочные сообщения в консоль.
         reset_pin: Экземпляр machine.Pin для аппаратного сброса модуля.
                    Если передан (не None), выполняется импульс сброса (ACTIVE LOW).
-                   По умолчанию None — используется программный сброс через UART.
+                   По умолчанию используется программный сброс через UART.
     """
     if reset_pin is not None:
         if show_info:
