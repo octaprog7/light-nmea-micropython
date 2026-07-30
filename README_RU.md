@@ -471,6 +471,20 @@ pip install pyserial
 ### Дашбоард
 ![Приборная панель GNSS](assets/gnss_dash_brd.png)
 
+### Визуализация GNSS-траектории (HTML-карта)
+
+Используйте `visualize_gnss.py` для генерации интерактивных HTML-карт из записанных GNSS-журналов. Скрипт считывает `gnss_log.csv` и создает автономный HTML-файл с интерактивной картой, отображающей полную траекторию.
+
+#### Использование:
+
+```bash
+# Генерация HTML-карты из CSV-журнала
+# вход: gnss_log.csv
+# выход: gnss_track.html
+python3 visualize_gnss.py
+```
+![Визуализация дрейфа](assets/drift_visualization.png)
+
 ## Авторство и Лицензия
 
 Copyright 2026 Roman Shevchik

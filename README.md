@@ -439,6 +439,20 @@ pip install pyserial
 ### Dashboard
 ![GNSS Dashboard](assets/gnss_dash_brd.png)
 
+### GNSS Track Visualization (HTML Map)
+
+Use `visualize_gnss.py` to generate interactive HTML maps from recorded GNSS logs. The script reads `gnss_log.csv` and creates a standalone HTML file with an interactive map showing the complete track.
+
+#### Usage:
+
+```bash
+# Generate HTML map from CSV log
+#  input: gnss_log.csv
+#  output: gnss_track.html
+python3 visualize_gnss.py
+``` 
+![Drift visualization](assets/drift_visualization.png)
+
 ## Authorship and License
 Copyright 2026 Roman Shevchik
 ### License
