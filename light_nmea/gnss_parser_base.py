@@ -13,8 +13,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Базовый интерфейс для GNSS-парсеров NMEA-0183.
-Определяет интерфейс, который обязан реализовать любой парсер, чтобы работать с NMEAStreamReader."""
+"""Base interface for NMEA-0183 GNSS parsers.
+Defines the interface that any parser must implement to work with NMEAStreamReader."""
 
 try:
     from micropython import const, native
@@ -26,10 +26,10 @@ except ImportError:
 
 
 class IGNSSParser:
-    """Базовый интерфейс для всех GNSS-парсеров NMEA-0183.
+    """Base interface for all NMEA-0183 GNSS parsers.
 
-    Внимание: далее под словами 'поставщик данных' подразумевается: поставщиком 'предложений' или 'sentences' в стандарте NMEA-183!
-    Пример минимальной реализации:
+    Note: The term 'data provider' used below refers to the provider of NMEA-183 'sentences'!
+    Example of minimal implementation:
 
         class MyParser(IGNSSParser):
             def is_valid(self) -> bool:
@@ -39,7 +39,7 @@ class IGNSSParser:
                 return self._constellation
 
             def parse_line(self, line_bytes: bytes, start: int, end: int) -> bool:
-                # парсинг NMEA-строки
+                # NMEA sentence parsing
                 return True
 
             def reset(self) -> None:
@@ -50,102 +50,102 @@ class IGNSSParser:
 
     def is_valid(self) -> bool:
         """
-        Возвращает флаг валидности текущего состояния парсера.
+        Returns the validity flag of the parser's current state.
 
-        True  — парсер имеет валидные данные (фикс, координаты и т.п.).
-        False — данные отсутствуют или невалидны.
+        True  - The parser has valid data (fix, coordinates, etc.).
+        False - Data is missing or invalid.
 
-        Используется поставщиком данных в callback-функции для статистики.
+        Used by the data provider in a callback function for statistics.
 
         Returns:
-            bool: True если данные валидны, иначе False.
+            bool: True if data is valid, otherwise False.
 
         Raises:
-            NotImplementedError: Если метод не переопределён в наследнике.
+            NotImplementedError: If the method is not overridden in the subclass.
         """
         raise NotImplementedError(
-            "Метод is_valid() должен быть реализован в классе-наследнике IGNSSParser"
+            "Method is_valid() must be implemented in the IGNSSParser subclass"
         )
 
     def get_constellation(self) -> int:
         """
-        Возвращает числовой идентификатор текущего созвездия GNSS.
+        Returns the numeric identifier of the current GNSS constellation.
 
-        Значения идентификаторов (стандартные константы CST_*):
-            0 — неизвестное созвездие (CST_UNKNOWN)
-            1 — GPS
-            2 — GLONASS
-            3 — Galileo
-            4 — BeiDou
-            5 — QZSS
-            6 — NavIC (IRNSS)
-            7 — Multi-GNSS (смешанное решение)
+        Identifier values (standard CST_* constants):
+            0 - Unknown constellation (CST_UNKNOWN)
+            1 - GPS
+            2 - GLONASS
+            3 - Galileo
+            4 - BeiDou
+            5 - QZSS
+            6 - NavIC (IRNSS)
+            7 - Multi-GNSS (mixed solution)
 
-        Если созвездие не определено, метод должен вернуть 0 (CST_UNKNOWN).
+        If the constellation is not defined, the method must return 0 (CST_UNKNOWN).
 
         Returns:
-            int: Идентификатор созвездия (0..7).
+            int: Constellation identifier (0..7).
 
         Raises:
-            NotImplementedError: Если метод не переопределён в наследнике.
+            NotImplementedError: If the method is not overridden in the subclass.
         """
         raise NotImplementedError(
-            "Метод get_constellation() должен быть реализован в классе-наследнике IGNSSParser"
+            "Method get_constellation() must be implemented in the IGNSSParser subclass"
         )
 
     def parse_line(self, line_bytes: bytes, start: int, end: int) -> bool:
         """
-        Парсит одну NMEA-строку из байтового буфера.
+        Parses a single NMEA sentence from a byte buffer.
 
-        Главный метод парсера. Вызывается поставщиком данных для каждого
-        завершённого пакета (от '$' до CR+LF включительно).
+        The main method of the parser. Called by the data provider for each
+        completed packet (from '$' to CR+LF inclusive).
 
-        Аргументы:
-            line_bytes (bytes|bytearray): Буфер, содержащий NMEA-строку.
-                Парсер НЕ должен модифицировать буфер и НЕ должен сохранять
-                ссылку на него после возврата из метода.
-            start (int): Индекс первого байта строки (включительно).
-                Обычно указывает на символ '$'.
-            end (int): Индекс конца строки (не включительно).
-                Обычно указывает на байт сразу после '\\n'.
+        Args:
+            line_bytes (bytes|bytearray): Buffer containing the NMEA sentence.
+                The parser MUST NOT modify the buffer and MUST NOT save
+                a reference to it after returning from the method.
+            start (int): Index of the first byte of the sentence (inclusive).
+                Usually points to the '$' character.
+            end (int): Index of the end of the sentence (exclusive).
+                Usually points to the byte immediately after '\\n'.
 
-        Возвращает:
-            bool: True  — пакет распознан и успешно обработан.
-                  False — пакет не распознан (неизвестный тип) или отклонён
-                          (ошибка CRC, слишком короткий и т.п.).
+        Returns:
+            bool: True  - The packet was recognized and successfully processed.
+                  False - The packet was not recognized (unknown type) or rejected
+                          (CRC error, too short, etc.).
 
         Raises:
-            NotImplementedError: Если метод не переопределён в наследнике.
+            NotImplementedError: If the method is not overridden in the subclass.
         """
         raise NotImplementedError(
-            "Метод parse_line(line_bytes, start, end) должен быть реализован "
-            "в классе-наследнике IGNSSParser"
+            "Method parse_line(line_bytes, start, end) must be implemented "
+            "in the IGNSSParser subclass"
         )
 
     def reset(self) -> None:
         """
-        Сбрасывает внутреннее состояние парсера к значениям по умолчанию.
+        Resets the internal state of the parser to default values.
 
-        Вызывается при:
-            - изменении скорости UART,
-            - обнаружении сбоев UART (переполнение буфера, потеря синхронизации),
-            - потере питания GNSS-модуля,
-            - явном запросе пользователя.
+        Called when:
+            - UART baud rate changes,
+            - UART errors are detected (buffer overflow, loss of synchronization),
+            - GNSS module loses power,
+            - Explicit user request.
 
-        После вызова reset() парсер должен находиться в состоянии,
-        эквивалентном только что созданному экземпляру:
-            - is_valid() возвращает False,
-            - get_constellation() возвращает 0,
-            - все внутренние счётчики и буферы очищены.
+        After calling reset(), the parser must be in a state
+        equivalent to a newly created instance:
+            - is_valid() returns False,
+            - get_constellation() returns 0,
+            - All internal counters and buffers are cleared.
 
         Raises:
-            NotImplementedError: Если метод не переопределён в наследнике.
+            NotImplementedError: If the method is not overridden in the subclass.
         """
         raise NotImplementedError(
-            "Метод reset() должен быть реализован в классе-наследнике IGNSSParser"
+            "Method reset() must be implemented in the IGNSSParser subclass"
         )
 
 
-# Псевдоним типа для использования в аннотациях NMEAStreamReader.
-# В MicroPython аннотации типов не проверяются runtime, но помогают IDE.
+# Type alias for use in NMEAStreamReader annotations.
+# In MicroPython, type annotations are not checked at runtime, but help IDEs.
 GNSSParser = IGNSSParser
