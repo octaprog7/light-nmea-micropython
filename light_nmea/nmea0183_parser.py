@@ -435,20 +435,17 @@ class LightNMEA(IGNSSParser):
                 self.reject_too_short += 1
             return False
 
-        # Mode Indicator (поле 11)
-        if comma_count >= 11:
-            mode_st = self._comma_pos[10] + 1
-            mode_en = star_idx
+        # Mode Indicator - поле 12 (NMEA v3.0+)
+        self.fix_mode = FIX_NOT_VALID
+
+        if comma_count >= 12:
+            mode_st = self._comma_pos[11] + 1  # Начало поля 12
+            mode_en = self._comma_pos[12] if comma_count > 12 else star_idx
+
             if mode_en > mode_st:
                 mode_byte = line_bytes[mode_st]
                 if _A_CHAR <= mode_byte <= _R_CHAR:
                     self.fix_mode = _FIX_MODE_TABLE[mode_byte - _A_CHAR]
-                else:
-                    self.fix_mode = FIX_NOT_VALID
-            else:
-                self.fix_mode = FIX_NOT_VALID
-        else:
-            self.fix_mode = FIX_NOT_VALID
 
         # Статус (поле 2)
         s_st = self._comma_pos[1] + 1
