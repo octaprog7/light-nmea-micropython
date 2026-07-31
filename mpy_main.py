@@ -19,7 +19,7 @@ import time
 from micropython import const
 from machine import UART, Pin, RTC
 from light_nmea.nmea0183_parser import LightNMEA
-from light_nmea.nmea0183_stats import GPSStats
+from light_nmea.nmea0183_stats import GNSSStats
 from light_nmea.nmea0183_stream import NMEAStreamReader
 from light_nmea.conv_to_hrf import to_format, FMT_CSV
 from gnss_module_utils import detect_gnss_module_type, send_gnss_reset, gnss_module_id_to_str
@@ -44,7 +44,7 @@ only_gnss : bool = True
 
 # === Инициализация ===
 parser = LightNMEA(trust_gga_fix=True, enable_diagnostics=True)
-stats = GPSStats()
+stats = GNSSStats()
 rtc = RTC()
 # 15 секунд без приема данных от GNSS модуля приводят
 # к ПОПЫТКЕ программного сброса модуля GNSS-приемника!
@@ -245,8 +245,8 @@ def gnss_mod_to_usb_bridge() -> None:
         if not only_gnss:
             print("\nStop...")
             stats.report()
-            GPSStats.print_reject_stats(parser)
-            GPSStats.print_state(parser)
+            GNSSStats.print_reject_stats(parser)
+            GNSSStats.print_state(parser)
             print(f"Number of packets broken: {reader.packets_aborted}")
             if 'uart' in locals():
                 uart.deinit()

@@ -24,7 +24,7 @@
 import gc
 from nav_gen import get_nav_packet
 from light_nmea.nmea0183_parser import LightNMEA
-from light_nmea.nmea0183_stats import GPSStats
+from light_nmea.nmea0183_stats import GNSSStats
 
 try:
     import micropython
@@ -41,7 +41,7 @@ call_gc_collect = True
 
 def main():
     gps = LightNMEA(trust_gga_fix=True)
-    stats = GPSStats()
+    stats = GNSSStats()
 
     try:
         gc.threshold(8192)  # Запускать GC, когда свободно < 8 КБ
@@ -95,7 +95,7 @@ def main():
 
     # Итоги
     stats.report()
-    GPSStats.print_state(gps)
+    GNSSStats.print_state(gps)
 
     mem_after = stats.get_memory_usage()
     print(f"Используемая память после теста [КБ]: {mem_after:.0f}")

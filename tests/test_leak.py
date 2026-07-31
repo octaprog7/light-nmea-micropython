@@ -19,7 +19,7 @@ import gc
 import time
 from nav_gen import get_nav_packet
 from light_nmea.nmea0183_parser import LightNMEA
-from light_nmea.nmea0183_stats import GPSStats
+from light_nmea.nmea0183_stats import GNSSStats
 
 ITERATIONS = 1_000_000
 _DELIM = 60
@@ -37,7 +37,7 @@ def main():
     for run in range(1, 4):
         # Пересоздаю объекты, чтобы поймать утечки при их переинициализации
         gps = LightNMEA(trust_gga_fix=True)
-        stats = GPSStats()
+        stats = GNSSStats()
 
         # Жесткая очистка памяти перед замером точки старта
         gc.collect()
