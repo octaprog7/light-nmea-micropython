@@ -79,7 +79,7 @@ _CONSTELLATION_NAMES = {
 }
 
 
-class GPSStats:
+class GNSS_Stats:
     """
     Сборщик статистики работы NMEA-183 парсера.
     Совместим с CPython и MicroPython.
