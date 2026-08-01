@@ -44,7 +44,7 @@ _SCAN_LINE_ERROR = (-1, -1)
 RESET_ALL = const(0)
 RESET_GGA = const(1)
 RESET_RMC = const(2)
-
+RESET_POSITION = const(3)
 
 # ASCII-коды
 _DOLLAR = const(36)
@@ -178,7 +178,7 @@ _GGA_QUALITY_FIX_MODE = (
 
 # === Модульные функции ===
 @native
-def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> int | tuple:
+def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> tuple:
     """Однопроходный сканер + CRC проверка. Возвращает (star_idx, comma_count) или _SCAN_LINE_ERROR."""
     line_len: int = len(line_bytes)
     if line_len < _MIN_PACKET_LEN or line_bytes[0] != _DOLLAR:
@@ -280,7 +280,7 @@ class LightNMEA(IGNSSParser):
     def __init__(self, trust_gga_fix: bool = False, enable_diagnostics: bool = False) -> None:
         # Внутренние буферы для парсинга
         self._parse_buffer = bytearray(_MAX_PACKET_SIZE)    # Буфер для копирования входных данных
-        self._time_buffer: list = len(time.localtime()) * [0]  # Буфер для конвертации времени в tuple
+        self._time_buffer: list = 9 * [-1]  # Буфер для конвертации времени в tuple
         self._comma_pos: bytearray = bytearray(_MAX_COMMAS) # Позиции запятых в пакете (для быстрого доступа к полям)
         # Настройки парсера
         self._trust_gga: bool = trust_gga_fix   # Если True, использовать GGA для установки valid и fix_mode
@@ -320,27 +320,35 @@ class LightNMEA(IGNSSParser):
         self.reject_too_short: int = 0      # Пакетов отклонено: пакет слишком короткий
 
     def reset(self, scope: int = RESET_ALL) -> None:
-        """Сброс полей навигации. Простой и объединенный."""
-        # Сброс общий и для GGA, и для RMC, так как оба дают координаты
-        self.valid = False
-        self.latitude = None
-        self.longitude = None
-        self.fix_mode = FIX_NOT_VALID
+        """Сброс полей навигации с учетом области видимости (scope)."""
 
-        # Сброс данных, приходящих из пакета типа GGA
-        if scope == RESET_GGA or scope == RESET_ALL:
-            self.altitude = None
-            self.satellites = 0
-            self.hdop = None
+        # RESET_POSITION: сбрасываю только координаты
+        if scope == RESET_POSITION:
+            self.valid = False
+            self.latitude = None
+            self.longitude = None
+            return
 
-        # Сброс данных, приходящих из пакета типа RMC
-        if scope == RESET_RMC or scope == RESET_ALL:
+        # RESET_RMC и RESET_ALL: сбрасываю valid, координаты, fix_mode и данные RMC
+        if scope in (RESET_RMC, RESET_ALL):
+            self.valid = False
+            self.latitude = None
+            self.longitude = None
+            self.fix_mode = FIX_NOT_VALID
             self.speed = None
             self.course = None
             self.time = b""
             self.date = b""
 
-        # Общий сброс (только при RESET_ALL)
+        # При RESET_GGA не трогаю valid/latitude/longitude/fix_mode,
+        # чтобы сохранить валидные данные из RMC.
+        # При RESET_ALL эти поля будут сброшены выше!
+        if scope in (RESET_GGA, RESET_ALL):
+            self.altitude = None
+            self.satellites = 0
+            self.hdop = None
+
+        # RESET_ALL: полный сброс
         if scope == RESET_ALL:
             self.constellation = CST_UNKNOWN
 
@@ -380,8 +388,9 @@ class LightNMEA(IGNSSParser):
             self._time_buffer[3] = int(mv_time[0:2])
             self._time_buffer[4] = int(mv_time[2:4])
             self._time_buffer[5] = int(mv_time[4:6])
-            self._time_buffer[6] = 0
-            self._time_buffer[7] = 0
+            self._time_buffer[6] = 0    # week day
+            self._time_buffer[7] = 0    # day of year
+            self._time_buffer[8] = -1
             return True
         except ValueError:
             return False
@@ -430,10 +439,18 @@ class LightNMEA(IGNSSParser):
     @native
     def _parse_rmc(self, line_bytes: bytearray, star_idx: int, comma_count: int) -> bool:
         """Парсинг RMC (Recommended Minimum Specific GNSS Data)."""
-        if comma_count < 9:
+        if comma_count < 10:
             if self._enable_diagnostics:
                 self.reject_too_short += 1
             return False
+
+        # Статус (поле 2)
+        s_st = self._comma_pos[1] + 1
+        if line_bytes[s_st] != _A_CHAR:
+            self.reset(RESET_RMC)
+            return True
+
+        self.valid = True
 
         # Mode Indicator - поле 12 (NMEA v3.0+)
         self.fix_mode = FIX_NOT_VALID
@@ -447,16 +464,8 @@ class LightNMEA(IGNSSParser):
                 if _A_CHAR <= mode_byte <= _R_CHAR:
                     self.fix_mode = _FIX_MODE_TABLE[mode_byte - _A_CHAR]
 
-        # Статус (поле 2)
-        s_st = self._comma_pos[1] + 1
-        if line_bytes[s_st] != _A_CHAR:
-            self.reset(RESET_RMC)
-            return True
-
-        self.valid = True
-
         # Время (поле 1)
-        self.time = line_bytes[7:self._comma_pos[1]]
+        self.time = line_bytes[self._comma_pos[0] + 1:self._comma_pos[1]]
 
         # парсинг координат (RMC: start_idx = 2)
         if not self._parse_coordinates(line_bytes, 2):
@@ -479,7 +488,7 @@ class LightNMEA(IGNSSParser):
     @native
     def _parse_gga(self, line_bytes: bytearray, comma_count: int) -> bool:
         """Парсинг GGA (GNSS Fix Data)."""
-        if comma_count < 9:
+        if comma_count < 10:
             if self._enable_diagnostics:
                 self.reject_too_short += 1
             return False
@@ -552,15 +561,15 @@ class LightNMEA(IGNSSParser):
         return True
 
     @native
-    def _parse_gll(self, line_bytes: bytearray, comma_count: int) -> bool:
+    def _parse_gll(self, line_bytes: bytearray, star_idx: int, comma_count: int) -> bool:
         """Парсинг GLL (Geographic Position)."""
-        if comma_count < 6:
+        if comma_count < 7:
             if self._enable_diagnostics:
                 self.reject_too_short += 1
             return False
 
         s_st = self._comma_pos[5] + 1
-        s_en = self._comma_pos[6]
+        s_en = self._comma_pos[6] if comma_count > 6 else star_idx
 
         if s_en > s_st and line_bytes[s_st] == _A_CHAR:
             self.valid = True
@@ -568,12 +577,12 @@ class LightNMEA(IGNSSParser):
 
             # парсинг координат (GLL: start_idx = 0)
             if not self._parse_coordinates(line_bytes, 0):
-                self.reset(RESET_RMC)
+                self.reset(RESET_POSITION)
                 return False
             return True
         else:
             # Статус не 'A' - сбрасываю навигационные данные
-            self.reset(RESET_RMC)
+            self.reset(RESET_POSITION)
             return True
 
 
@@ -582,9 +591,9 @@ class LightNMEA(IGNSSParser):
 # GLL содержит данные только координат и времени
 
     @native
-    def parse_line(self, buf: bytes, start: int = 0, end: int = _NOT_FOUND) -> bool:
+    def parse_line(self, buf: bytes, start: int = 0, end: int | None = None) -> bool:
         """Основной метод парсинга. Диспетчер сообщений."""
-        if end == _NOT_FOUND:
+        if end is None or _NOT_FOUND == end:
             end = len(buf)
 
         packet_len = end - start
@@ -624,7 +633,7 @@ class LightNMEA(IGNSSParser):
         elif b3 == _V_CHAR and b4 == _T_CHAR and b5 == _G_CHAR: # VTG
             return self._parse_vtg(line_bytes, comma_count)
         elif b3 == _G_CHAR and b4 == _L_CHAR and b5 == _L_CHAR: # GLL
-            return self._parse_gll(line_bytes, comma_count)
+            return self._parse_gll(line_bytes, star_idx, comma_count)
         if self._enable_diagnostics:
             self.reject_unknown_msg += 1
         return False
