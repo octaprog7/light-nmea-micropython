@@ -23,22 +23,28 @@ Python 3.9+, рамки и ASCII-текст.
 
 import os
 import sys
-
-# Проверка мин. версии Python
-if sys.version_info < (3, 9):
-    print(
-        f"Error: The dashboard requires Python 3.9 or later.\n"
-        f"Your Python version: {sys.version.split()[0]}",
-        file=sys.stderr
-    )
-    sys.exit(1)
-
 import time
 import math
 import serial
 import curses
-from typing import Optional, Tuple, List
+from datetime import datetime
 import serial.tools.list_ports
+from typing import Optional, Tuple, List, IO
+
+
+def log_msg(message: str, destination: IO[str]) -> None:
+    """Выводит сообщение в destination с временной меткой в формате журнала."""
+    timestamp = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+    print(f"[{timestamp}] {message}", file=destination)
+
+
+# Проверка мин. версии Python
+if sys.version_info < (3, 9):
+    log_msg(
+        f"Error: The dashboard requires Python 3.9 or later.\n"
+        f"Your Python version: {sys.version.split()[0]}",
+    sys.stderr)
+    sys.exit(1)
 
 # Serial / USB
 DEFAULT_BAUDRATE = 115200 # 38400
@@ -154,12 +160,12 @@ def ensure_terminal() -> None:
         if sys.stdout.isatty():
             os.environ["TERM"] = "xterm-256color"
         else:
-            print(
+            log_msg(
                 "Error: The script requires an interactive terminal..\n"
                 "Run from terminal (not from IDE) or set TERM environment variable:\n"
                 "  export TERM=xterm-256color\n"
                 "  python3 gnss_dashboard.py",
-                file=sys.stderr
+                sys.stderr
             )
             sys.exit(1)
 
@@ -265,7 +271,7 @@ class LogWriter:
                 self._file.flush()
             self._is_writing = True
         except OSError as ex:
-            print(f"Error opening log {self._filename}: {ex}", file=sys.stderr)
+            log_msg(f"Error opening log {self._filename}: {ex}", sys.stderr)
             self._file = None
             self._is_writing = False
 
@@ -296,7 +302,7 @@ class LogWriter:
             self._packet_count += 1
             self._is_writing = True
         except OSError as ex:
-            print(f"Error writing to log: {ex}", file=sys.stderr)
+            log_msg(f"Error writing to log: {ex}", sys.stderr)
             self._is_writing = False
 
     def close(self) -> None:
@@ -762,7 +768,7 @@ class Dashboard:
         # Если окно слишком маленькое, то предупреждение
         if h < MIN_TERM_HEIGHT or w < MIN_TERM_WIDTH:
             self.stdscr.erase()
-            msg = f"Terminal too small! Minimum: {MIN_TERM_WIDTH}x{MIN_TERM_HEIGHT}"
+            msg = f"Terminal too small! Minimum: {MIN_TERM_WIDTH}x{MIN_TERM_HEIGHT}. Press q, Q, ESCAPE to exit!"
             try:
                 self.stdscr.addstr(h // 2, max(0, (w - len(msg)) // 2), msg, curses.A_BOLD | curses.A_REVERSE)
             except curses.error:
@@ -818,14 +824,14 @@ class Dashboard:
         if msg_type == MCU_MSG_MODULE_DETECTED:
             self.stats.gnss_module_name = payload
         elif msg_type == MCU_MSG_SOFTWARE_RESET:
-            print(f"MCU: Software reset initiated ({payload})", file=sys.stderr)
+            log_msg(f"MCU: Software reset initiated ({payload})", sys.stderr)
             self.stats.success = 0
             self.stats.errors = 0
             # Инкремент счётчика программных сбросов
             self.stats.software_resets += 1
             self.log_writer.reset_count()
         elif msg_type == MCU_MSG_WATCHDOG_TRIGGERED:
-            print(f"MCU: Watchdog triggered ({payload})", file=sys.stderr)
+            log_msg(f"MCU: Watchdog triggered ({payload})", sys.stderr)
 
     def _try_reconnect(self) -> None:
         current_time = now()  # <-- ЗАМЕНА
@@ -929,7 +935,7 @@ def parse_args() -> Tuple[str, int]:
         try:
             baudrate = int(sys.argv[2])
         except ValueError:
-            print(f"Invalid baudrate: {sys.argv[2]}", file=sys.stderr)
+            log_msg(f"Invalid baudrate: {sys.argv[2]}", sys.stderr)
             sys.exit(1)
 
     return port, baudrate
@@ -955,11 +961,11 @@ if __name__ == "__main__":
     try:
         curses.wrapper(main)
     except RuntimeError as e:
-        print(e, file=sys.stderr)
+        log_msg(str(e), sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
         pass
     except curses.error as e:  # ИСПРАВЛЕНО: _curses.error -> curses.error
-        print(f"curses error: {e}", file=sys.stderr)
-        print("Make sure you run the script from an interactive terminal.", file=sys.stderr)
+        log_msg(f"curses error: {e}", sys.stderr)
+        log_msg("Make sure you run the script from an interactive terminal.", sys.stderr)
         sys.exit(1)
