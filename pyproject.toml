@@ -7,7 +7,7 @@ packages = ["light_nmea"]
 
 [project]
 name = "light-nmea-micropython"
-version = "2.2.0"
+version = "2.3.0"
 description = "Fast NMEA 0183 parser for Python and MicroPython"
 readme = "README.md"
 requires-python = ">=3.7"

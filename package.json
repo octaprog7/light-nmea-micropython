@@ -1,7 +1,7 @@
 {
   "v": 1,
   "name": "light-nmea-micropython",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Lightweight NMEA-0183 parser for MicroPython",
   "license": "GPL-3.0",
   "urls": [
