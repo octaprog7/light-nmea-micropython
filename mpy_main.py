@@ -18,7 +18,7 @@ import gc
 import time
 from micropython import const
 from machine import UART, Pin, RTC
-from light_nmea.nmea0183_parser import LightNMEA
+from light_nmea.nmea0183_parser import LightNMEA, CST_MASK_ALL, CST_MASK_GPS, CST_GLONASS, CST_MASK_MULTI
 from light_nmea.nmea0183_stats import GNSSStats
 from light_nmea.nmea0183_stream import NMEAStreamReader
 from light_nmea.conv_to_hrf import to_format, FMT_CSV
@@ -44,12 +44,13 @@ only_gnss : bool = True
 
 # === Инициализация ===
 parser = LightNMEA(trust_gga_fix=True, enable_diagnostics=True)
+parser.set_cst_filter(CST_MASK_ALL)  #  CST_MASK_MULTI
 stats = GNSSStats()
 rtc = RTC()
 # 15 секунд без приема данных от GNSS модуля приводят
 # к ПОПЫТКЕ программного сброса модуля GNSS-приемника!
-WATCHDOG_TIMEOUT_MS = const(15000)
-MODULE_INFO_INTERVAL_MS = const(30_000)
+WATCHDOG_TIMEOUT_MS = const(90_000)
+MODULE_INFO_INTERVAL_MS = const(45_000)
 # Кол-во попыток синхронизации ИС RTC на плате.
 _RTC_SYNC_MAX_ATTEMPTS = const(5)
 
@@ -150,7 +151,10 @@ uart.flush()
 
 # callback для статистики
 def stats_callback(recognized, valid, constellation):
+    # try
     stats.update(recognized, valid, constellation)
+    # except Exception as e:
+    #         print("stats_callback error:", e)
 
 
 reader = NMEAStreamReader(uart)
@@ -205,8 +209,8 @@ def gnss_mod_to_usb_bridge() -> None:
                     if par_time != last_time_from_gnss and parser.hdop is not None:
                         # Вывод данных пакета при наличии фикса
                         if print_packet_info:
-                            _print_packet_data(parser)
-                    last_time_from_gnss = par_time
+                            _print_packet_data(parser, only_gnss)
+                        last_time_from_gnss = par_time
 
                 # Вывод статистики
                 if not only_gnss:
@@ -248,11 +252,13 @@ def gnss_mod_to_usb_bridge() -> None:
             GNSSStats.print_reject_stats(parser)
             GNSSStats.print_state(parser)
             print(f"Number of packets broken: {reader.packets_aborted}")
-            if 'uart' in locals():
-                uart.deinit()
+
 
     if not only_gnss:
         print(f"Free RAM [KB]: {stats.get_memory_usage()}")
 
 if __name__ == "__main__":
-    gnss_mod_to_usb_bridge()
+    try:
+        gnss_mod_to_usb_bridge()
+    finally:
+        uart.deinit()
