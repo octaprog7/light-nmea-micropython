@@ -30,16 +30,14 @@ try:
 except ImportError:
     def viper(f): return f
 
-
 # постоянные
-_MAX_PACKET_SIZE = const(120)  # Максимальная длина NMEA-пакета в ASCII
-_NEGATIVE_DIRS = (b'S', b'W')
-_INVALID_FIXES = (b'0', b'')
+_MAX_PACKET_SIZE = const(120)   # Максимальная длина NMEA-пакета в ASCII
+_MIN_PACKET_SIZE = const(8)     # Минимальная длина NMEA-пакета в ASCII
 _MINUTES_TO_DEGREES = 1.0 / 60.0
 _KNOTS_TO_KMH = 1.852
 _MAX_COMMAS = const(14)
 _NOT_FOUND = const(-1)  # Результат поиска, когда элемент не найден
-_SCAN_LINE_ERROR = (-1, -1)
+_SCAN_LINE_ERROR = const(-1)
 
 RESET_ALL = const(0)
 RESET_GGA = const(1)
@@ -67,6 +65,8 @@ _B_CHAR = const(66)   # 'B'
 _C_CHAR = const(67)   # 'C'
 _D_CHAR = const(68)   # 'D'
 _M_CHAR = const(77)   # 'M'
+_N_CHAR = const(78)   # 'N'
+_P_CHAR = const(80)   # 'P'
 _R_CHAR = const(82)   # 'R'
 # для сравнений status и direction
 _S_CHAR = const(83)   # 'S' - South (для _NEGATIVE_DIRS)
@@ -107,7 +107,7 @@ CST_MASK_ALL = const(
 _CST_LOOKUP_BY_SECOND_BYTE = (
     CST_GALILEO,   # 65 'A'   GA - ЕС
     CST_BEIDOU,    # 66 'B'   GB/BD - Китай (старый формат)
-    CST_UNKNOWN,   # 67 'C'   не используется)
+    CST_UNKNOWN,   # 67 'C'   не используется
     CST_BEIDOU,    # 68 'D'   BD - Китай (новый стандарт IALA)
     CST_UNKNOWN,   # 69 'E'   не используется
     CST_UNKNOWN,   # 70 'F'   не используется
@@ -122,15 +122,6 @@ _CST_LOOKUP_BY_SECOND_BYTE = (
     CST_UNKNOWN,   # 79 'O'   не используется
     CST_GPS,       # 80 'P'   GP - США
     CST_QZSS,      # 81 'Q'   GQ - Япония
-)
-
-# Lookup-таблица для новых идентификаторов NMEA v4.10+
-# Формат: (byte1, byte2, constellation)
-# линейный поиск - для 3 элементов
-_CST_LOOKUP_NMEA_4_10_PLUS = (
-    (_B_CHAR, _D_CHAR, CST_BEIDOU),   # 'B', 'D' - BeiDou (новый стандарт)
-    (_Q_CHAR, _Z_CHAR, CST_QZSS),     # 'Q', 'Z' - QZSS (Япония, новый)
-    (_I_CHAR, _R_CHAR, CST_NAVIC),    # 'I', 'R' - NavIC (Индия, новый)
 )
 
 # Mode indicator из RMC - тип фикса
@@ -176,10 +167,69 @@ _GGA_QUALITY_FIX_MODE = (
     FIX_RTK_FLOAT,    # 5: Real Time Kinematic (Float)
 )
 
+_GGA_QUALITY_FIX_MODE_LEN = len(_GGA_QUALITY_FIX_MODE)
+
+# 24-битные идентификаторы типов сообщений
+_MSG_ID_RMC = const((_R_CHAR << 16) | (_M_CHAR << 8) | _C_CHAR)
+_MSG_ID_GGA = const((_G_CHAR << 16) | (_G_CHAR << 8) | _A_CHAR)
+_MSG_ID_VTG = const((_V_CHAR << 16) | (_T_CHAR << 8) | _G_CHAR)
+_MSG_ID_GLL = const((_G_CHAR << 16) | (_L_CHAR << 8) | _L_CHAR)
+
+# 16-битные константы
+_TALKER_ID_BD = const((_B_CHAR << 8) | _D_CHAR)  # BeiDou
+_TALKER_ID_QZ = const((_Q_CHAR << 8) | _Z_CHAR)  # QZSS
+_TALKER_ID_IR = const((_I_CHAR << 8) | _R_CHAR)  # NavIC
+
+
+# Таблица преобразования ASCII HEX в числовое значение
+# Индекс = ASCII код символа
+# Значение = числовое значение HEX (0-15) или -1 если неверно
+_HEX_VALUE = (
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 0-15
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 16-31
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 32-47
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9,  # 48-57 ('0'-'9')
+    -1, -1, -1, -1, -1, -1, -1,  # 58-64
+    10, 11, 12, 13, 14, 15,  # 65-70 ('A'-'F')
+    -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 71-79
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 80-95
+    -1,  # 96
+    10, 11, 12, 13, 14, 15,  # 97-102 ('a'-'f')
+    -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 103-111
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 112-127
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 128-143
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 144-159
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 160-175
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 176-191
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 192-207
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 208-223
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 224-239
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,  # 240-255
+)
+
+@native
+def _get_constellation(talker_byte_1: int, talker_byte_2: int) -> int:
+    """Определяет созвездие по байтам Talker ID."""
+    # путь 1: talker начинается с 'G' (GP, GL, GA, GB, GN...)
+    if talker_byte_1 == _G_CHAR and _T2_OFFSET <= talker_byte_2 <= _T2_MAX:
+        return _CST_LOOKUP_BY_SECOND_BYTE[talker_byte_2 - _T2_OFFSET]
+
+    # 16-битный ключ для NMEA v4.10+
+    talker_id = (talker_byte_1 << 8) | talker_byte_2
+
+    if talker_id == _TALKER_ID_BD:
+        return CST_BEIDOU
+    elif talker_id == _TALKER_ID_QZ:
+        return CST_QZSS
+    elif talker_id == _TALKER_ID_IR:
+        return CST_NAVIC
+
+    return CST_UNKNOWN
+
 # === Модульные функции ===
 @native
-def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> tuple:
-    """Однопроходный сканер + CRC проверка. Возвращает (star_idx, comma_count) или _SCAN_LINE_ERROR."""
+def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> int:
+    """Однопроходный сканер + CRC проверка. Возвращает star_idx в старшем байте и comma_count в младшем) или _SCAN_LINE_ERROR."""
     line_len: int = len(line_bytes)
     if line_len < _MIN_PACKET_LEN or line_bytes[0] != _DOLLAR:
         return _SCAN_LINE_ERROR
@@ -202,23 +252,18 @@ def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> tuple:
     if star_idx == _NOT_FOUND or star_idx + 3 > line_len:
         return _SCAN_LINE_ERROR
 
-    # проверка CRC с валидацией HEX
-    h1 = line_bytes[star_idx + 1]
-    h2 = line_bytes[star_idx + 2]
+    # проверка CRC через таблицу HEX (быстрее, чем 6 сравнений + 8 битовых операций)
+    n1 = _HEX_VALUE[line_bytes[star_idx + 1]]
+    n2 = _HEX_VALUE[line_bytes[star_idx + 2]]
 
-    # Проверка валидности (необязательно!)
-    if not ((48 <= h1 <= 57) or (65 <= h1 <= 70) or (97 <= h1 <= 102)):
+    if n1 < 0 or n2 < 0:
         return _SCAN_LINE_ERROR
-    if not ((48 <= h2 <= 57) or (65 <= h2 <= 70) or (97 <= h2 <= 102)):
-        return _SCAN_LINE_ERROR
-
-    n1 = (h1 & 0x0F) + (9 * ((h1 >> 6) & 1))
-    n2 = (h2 & 0x0F) + (9 * ((h2 >> 6) & 1))
 
     if calc_cs != ((n1 << 4) | n2):
         return _SCAN_LINE_ERROR
 
-    return star_idx, comma_count
+    return (star_idx << 8) | comma_count
+
 
 @native
 def _parse_degrees(raw_bytes: bytes, lat_st: int, lat_en: int, dir_st: int, dir_en: int) -> float | None:
@@ -229,7 +274,6 @@ def _parse_degrees(raw_bytes: bytes, lat_st: int, lat_en: int, dir_st: int, dir_
     # Быстрый поиск точки с указанием диапазона (без создания среза!)
     dot_idx = raw_bytes.find(b'.', lat_st, lat_en)
 
-    # Создаем memoryview ОДИН раз для всего буфера
     mv = memoryview(raw_bytes)
 
     try:
@@ -253,24 +297,6 @@ def _parse_degrees(raw_bytes: bytes, lat_st: int, lat_en: int, dir_st: int, dir_
             decimal = -decimal
 
     return decimal
-
-
-@native
-def _get_constellation(talker_byte_1: int, talker_byte_2: int) -> int:
-    """Определяет созвездие по байтам Talker ID.
-
-    :return: Код созвездия в диапазоне [0, 7]:
-             CST_UNKNOWN(0), CST_GPS(1), CST_GLONASS(2), CST_GALILEO(3),
-             CST_BEIDOU(4), CST_QZSS(5), CST_NAVIC(6), CST_MULTI(7)"""
-    if talker_byte_1 == _G_CHAR and _T2_OFFSET <= talker_byte_2 <= _T2_MAX:  # 'G' и валидный диапазон
-        return _CST_LOOKUP_BY_SECOND_BYTE[talker_byte_2 - _T2_OFFSET]
-    # Новые идентификаторы (NMEA v4.10+)
-    for b1, b2, cst in _CST_LOOKUP_NMEA_4_10_PLUS:
-        if talker_byte_1 == b1 and talker_byte_2 == b2:
-            return cst
-    # неизвестное созвездие спутников
-    return CST_UNKNOWN
-
 
 # === Класс парсера ===
 
@@ -443,9 +469,11 @@ class LightNMEA(IGNSSParser):
             if self._enable_diagnostics:
                 self.reject_too_short += 1
             return False
+        # уменьшаю время доступа
+        cp = self._comma_pos
 
         # Статус (поле 2)
-        s_st = self._comma_pos[1] + 1
+        s_st = cp[1] + 1
         if line_bytes[s_st] != _A_CHAR:
             self.reset(RESET_RMC)
             return True
@@ -456,8 +484,8 @@ class LightNMEA(IGNSSParser):
         self.fix_mode = FIX_NOT_VALID
 
         if comma_count >= 12:
-            mode_st = self._comma_pos[11] + 1  # Начало поля 12
-            mode_en = self._comma_pos[12] if comma_count > 12 else star_idx
+            mode_st = cp[11] + 1  # Начало поля 12
+            mode_en = cp[12] if comma_count > 12 else star_idx
 
             if mode_en > mode_st:
                 mode_byte = line_bytes[mode_st]
@@ -465,7 +493,7 @@ class LightNMEA(IGNSSParser):
                     self.fix_mode = _FIX_MODE_TABLE[mode_byte - _A_CHAR]
 
         # Время (поле 1)
-        self.time = line_bytes[self._comma_pos[0] + 1:self._comma_pos[1]]
+        self.time = line_bytes[cp[0] + 1:cp[1]]
 
         # парсинг координат (RMC: start_idx = 2)
         if not self._parse_coordinates(line_bytes, 2):
@@ -475,14 +503,14 @@ class LightNMEA(IGNSSParser):
         # Скорость и курс (один memoryview)
         rmc_mv = memoryview(line_bytes)
 
-        sp_st, sp_en = self._comma_pos[6] + 1, self._comma_pos[7]
+        sp_st, sp_en = cp[6] + 1, cp[7]
         self.speed = float(rmc_mv[sp_st:sp_en]) * _KNOTS_TO_KMH if sp_en > sp_st else None
 
-        cr_st, cr_en = self._comma_pos[7] + 1, self._comma_pos[8]
+        cr_st, cr_en = cp[7] + 1, cp[8]
         self.course = float(rmc_mv[cr_st:cr_en]) if cr_en > cr_st else None
 
         # Дата (поле 9)
-        self.date = line_bytes[self._comma_pos[8] + 1:self._comma_pos[9]]
+        self.date = line_bytes[cp[8] + 1:cp[9]]
         return True
 
     @native
@@ -493,16 +521,21 @@ class LightNMEA(IGNSSParser):
                 self.reject_too_short += 1
             return False
 
-        gga_mv = memoryview(line_bytes)
-        fix_st = self._comma_pos[5] + 1
-        fix_en = self._comma_pos[6]
+        # часто используемые данные
+        cp = self._comma_pos
+        cp5, cp6, cp7, cp8, cp9 = cp[5], cp[6], cp[7], cp[8], cp[9]
+        trust_gga = self._trust_gga
+
+        fix_st = cp5 + 1
+        fix_en = cp6
 
         # Проверяю качество фикса (не '0' и не пусто)
         if fix_en > fix_st and line_bytes[fix_st] != _0_CHAR:
+            gga_mv = memoryview(line_bytes)
             fix_quality = int(gga_mv[fix_st:fix_en])
 
             # Обновляю режим фикса из таблицы GGA
-            if fix_quality < len(_GGA_QUALITY_FIX_MODE):
+            if fix_quality < _GGA_QUALITY_FIX_MODE_LEN:
                 self.fix_mode = _GGA_QUALITY_FIX_MODE[fix_quality]
 
             # парсинг координат (GGA: start_idx = 1)
@@ -511,23 +544,23 @@ class LightNMEA(IGNSSParser):
                 return False
 
             # Спутники (поле 7)
-            sat_st, sat_en = self._comma_pos[6] + 1, self._comma_pos[7]
+            sat_st, sat_en = fix_en + 1, cp7
             self.satellites = int(gga_mv[sat_st:sat_en]) if sat_en > sat_st else 0
 
             # HDOP (поле 8)
-            hdop_st, hdop_en = self._comma_pos[7] + 1, self._comma_pos[8]
+            hdop_st, hdop_en = cp7 + 1, cp8
             self.hdop = float(gga_mv[hdop_st:hdop_en]) if hdop_en > hdop_st else None
 
             # Высота (поле 9)
-            alt_st, alt_en = self._comma_pos[8] + 1, self._comma_pos[9]
+            alt_st, alt_en = cp8 + 1, cp9
             self.altitude = float(gga_mv[alt_st:alt_en]) if alt_en > alt_st else None
 
             # Если доверяю GGA, он становится основным источником valid
-            if self._trust_gga:
+            if trust_gga:
                 self.valid = True
         else:
             # Нет фикса (fix_quality == 0)
-            if self._trust_gga:
+            if trust_gga:
                 self.valid = False
             self.reset(RESET_GGA)
 
@@ -542,19 +575,20 @@ class LightNMEA(IGNSSParser):
             return False
 
         vtg_mv = memoryview(line_bytes)
+        cp = self._comma_pos
 
         # Курс
-        cr_st, cr_en = self._comma_pos[0] + 1, self._comma_pos[1]
+        cr_st, cr_en = cp[0] + 1, cp[1]
         if cr_en > cr_st:
             self.course = float(vtg_mv[cr_st:cr_en])
 
         # Скорость в узлах
-        sp_st, sp_en = self._comma_pos[4] + 1, self._comma_pos[5]
+        sp_st, sp_en = cp[4] + 1, cp[5]
         if sp_en > sp_st:
             self.speed = float(vtg_mv[sp_st:sp_en]) * _KNOTS_TO_KMH
 
         # Скорость в км/ч (перезаписывает, если есть)
-        sp_kmh_st, sp_kmh_en = self._comma_pos[6] + 1, self._comma_pos[7]
+        sp_kmh_st, sp_kmh_en = cp[6] + 1, cp[7]
         if sp_kmh_en > sp_kmh_st:
             self.speed = float(vtg_mv[sp_kmh_st:sp_kmh_en])
 
@@ -568,12 +602,14 @@ class LightNMEA(IGNSSParser):
                 self.reject_too_short += 1
             return False
 
-        s_st = self._comma_pos[5] + 1
-        s_en = self._comma_pos[6] if comma_count > 6 else star_idx
+        cp = self._comma_pos
+
+        s_st = cp[5] + 1
+        s_en = cp[6] if comma_count > 6 else star_idx
 
         if s_en > s_st and line_bytes[s_st] == _A_CHAR:
             self.valid = True
-            self.time = line_bytes[self._comma_pos[4] + 1:self._comma_pos[5]]
+            self.time = line_bytes[cp[4] + 1:cp[5]]
 
             # парсинг координат (GLL: start_idx = 0)
             if not self._parse_coordinates(line_bytes, 0):
@@ -593,50 +629,68 @@ class LightNMEA(IGNSSParser):
     @native
     def parse_line(self, buf: bytes, start: int = 0, end: int | None = None) -> bool:
         """Основной метод парсинга. Диспетчер сообщений."""
-        if end is None or _NOT_FOUND == end:
+        if end is None or end <= 0 or _NOT_FOUND == end:
             end = len(buf)
 
         packet_len = end - start
-        if packet_len > _MAX_PACKET_SIZE:
+        if packet_len > _MAX_PACKET_SIZE or packet_len < _MIN_PACKET_SIZE:
             return False
 
-        # Копирую в pre-allocated буфер
-        self._parse_buffer[:packet_len] = buf[start:end]
-        line_bytes = self._parse_buffer
-
-        star_idx, comma_count = _scan_line(line_bytes, self._comma_pos)
-        if star_idx == _NOT_FOUND:
-            if self._enable_diagnostics:
-                self.reject_crc += 1
-            return False
-
+        diag = self._enable_diagnostics
+        cst_mask = self._cst_mask
         # Определяю созвездие
-        cst = _get_constellation(line_bytes[1], line_bytes[2])
-        self.constellation = cst
+        cst = _get_constellation(buf[start + 1], buf[start + 2])
 
         if cst == CST_UNKNOWN:
-            if self._enable_diagnostics:
+            if diag:
                 self.reject_unknown_cst += 1
             return False
 
-        if not (self._cst_mask & (1 << cst)):
-            if self._enable_diagnostics:
+        if not (cst_mask & (1 << cst)):
+            if diag:
                 self.reject_filtered_cst += 1
             return False
 
+        # Тип сообщения (байты 3-5 после $)
+        msg_id = (buf[start + 3] << 16) | (buf[start + 4] << 8) | buf[start + 5]
+
+        if msg_id == _MSG_ID_RMC:
+            msg_type = 0
+        elif msg_id == _MSG_ID_GGA:
+            msg_type = 1
+        elif msg_id == _MSG_ID_VTG:
+            msg_type = 2
+        elif msg_id == _MSG_ID_GLL:
+            msg_type = 3
+        else:
+            if diag:
+                self.reject_unknown_msg += 1
+            return False
+
+        # Копирую в pre-allocated буфер и сканирую только нужные сообщения
+        self._parse_buffer[:packet_len] = buf[start:end]
+        line_bytes = self._parse_buffer
+
+        scan_res = _scan_line(line_bytes, self._comma_pos)
+        if scan_res == _SCAN_LINE_ERROR:
+            if diag:
+                self.reject_crc += 1
+            return False
+
+        star_idx = scan_res >> 8
+        comma_count = scan_res & 0xFF
+
+        self.constellation = cst
+
         # Диспетчер по типам сообщений
-        b3, b4, b5 = line_bytes[3], line_bytes[4], line_bytes[5]
-        if b3 == _R_CHAR and b4 == _M_CHAR and b5 == _C_CHAR:   # RMC
+        if 0 == msg_type:   # RMC
             return self._parse_rmc(line_bytes, star_idx, comma_count)
-        elif b3 == _G_CHAR and b4 == _G_CHAR and b5 == _A_CHAR: # GGA
+        elif 1 == msg_type: # GGA
             return self._parse_gga(line_bytes, comma_count)
-        elif b3 == _V_CHAR and b4 == _T_CHAR and b5 == _G_CHAR: # VTG
+        elif 2 == msg_type: # VTG
             return self._parse_vtg(line_bytes, comma_count)
-        elif b3 == _G_CHAR and b4 == _L_CHAR and b5 == _L_CHAR: # GLL
+        else: # GLL
             return self._parse_gll(line_bytes, star_idx, comma_count)
-        if self._enable_diagnostics:
-            self.reject_unknown_msg += 1
-        return False
 
     def is_valid(self) -> bool:
         """Реализация интерфейса IGNSSParser."""
