@@ -1,6 +1,5 @@
 # Copyright 2026 Roman Shevchik. See LICENSE for details.
 from light_nmea.gnss_parser_base import IGNSSParser
-# Абсолютные импорты ядра и констант для MicroPython
 from light_nmea.nmea0183_parser import (
     LightNMEA,
     CST_MASK_ALL,
@@ -29,10 +28,8 @@ from light_nmea.nmea0183_parser import (
     RESET_RMC
 )
 
-# Абсолютный импорт читателя UART
 from light_nmea.nmea0183_stream import NMEAStreamReader
 
-# Абсолютный импорт утилит преобразования
 from light_nmea.conv_to_hrf import to_format, FMT_TXT, FMT_CSV, FMT_JSON, FMT_COMPACT
 
 __all__ = [
