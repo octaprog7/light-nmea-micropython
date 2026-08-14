@@ -453,6 +453,25 @@ python3 visualize_gnss.py
 ``` 
 ![Drift visualization](assets/drift_visualization.png)
 
+---
+
+## Acknowledgments & Dedication
+
+This project is dedicated to the exceptional engineering education provided by the **Faculty of Radio Engineering (RTF)** at **USTU-UPI** (Ural State Technical University — UPI, currently known as **UrFU** — Ural Federal University), during the academic years **1993–1998**.
+
+Special thanks and highest professional respect to the faculty members of the **Radio Receiving Devices (RPU)** and **Radio Transmitting Devices (RPrU)** departments in Ekaterinburg, as well as the entire engineering teaching staff of the **Kamensk-Uralsky branch**. The knowledge you shared with me laid the foundation for everything I do!
+
+In honorable memory and deepest respect to the core mentors:
+* **V. A. Dobryak** (RPrU department)
+* **N. A. Dyadkov** (RPU department)
+* **V. V. Kiyko** (Automation department)
+* **B. A. Panchenko** (RPrU department)
+* **S. N. Shabunin** (RPrU department)
+* *...and many other faculty members.*
+
+*Thank you!*
+
+
 ## Authorship and License
 Copyright 2026 Roman Shevchik
 ### License
