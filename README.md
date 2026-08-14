@@ -465,6 +465,7 @@ In honorable memory and deepest respect to the core mentors:
 * **V. A. Dobryak** (RPrU department)
 * **N. A. Dyadkov** (RPU department)
 * **V. V. Kiyko** (Automation department)
+* **S. N. Kireev** (Kamensk-Uralsky branch) 
 * **B. A. Panchenko** (RPrU department)
 * **S. N. Shabunin** (RPrU department)
 * *...and many other faculty members.*
