@@ -45,6 +45,13 @@ def _open_serial(port: str, baud: int) -> None | serial.Serial:
     print(f"Открываю порт {port}...")
     try:
         ser = serial.Serial(port, baud, timeout=1)
+        # Устанавливаю DTR и RTS для USB CDC устройств на другом конце линии связи
+        ser.dtr = True
+        ser.rts = True
+        # Задержка для инициализации USB CDC
+        time.sleep(0.5)
+        # Сбрасываю буфер, чтобы не читать старые данные
+        ser.reset_input_buffer()
         print(f"Порт открыт. Пишу в {OUTPUT_FILE}")
         return ser
     except serial.SerialException as e:
