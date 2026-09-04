@@ -15,8 +15,21 @@
 
 # mpy_main.py
 import gc
+import sys
 import time
-from micropython import const
+
+# ожидание инициализации устройства /dev/ttyXXX на Linux ПК
+time.sleep_ms(1000)
+
+try:
+    # прогрев USB-CDC
+    sys.stdout.write("\r\n")
+    from micropython import const
+except ImportError as ex:
+    print("Error: Code run under MicroPython ONLY!")
+    raise ex
+
+
 from machine import UART, Pin, RTC
 from light_nmea.nmea0183_parser import LightNMEA, CST_MASK_ALL, CST_MASK_GPS, CST_GLONASS, CST_MASK_MULTI
 from light_nmea.nmea0183_stats import GNSSStats
