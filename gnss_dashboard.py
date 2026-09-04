@@ -453,8 +453,21 @@ class SerialParser:
         try:
             self._ser = serial.Serial(self.port, baudrate=self.baudrate, timeout=self._timeout)
             self._read = self._ser.read
+            #
+            ser = self._ser
+            ser.dtr = False
+            ser.rts = False
+            time.sleep(0.1)
+            # для пробуждения USB-CDC на RP2040
+            ser.dtr = True
+            ser.rts = True
+            #
+            time.sleep(0.5)
+            ser.reset_input_buffer()
+            #
             return True
-        except serial.SerialException:
+        except serial.SerialException as ex:
+            log_msg(f"{ex}", sys.stderr)
             self._ser = None
             self._read = None
             return False
