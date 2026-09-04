@@ -45,10 +45,14 @@ def _open_serial(port: str, baud: int) -> None | serial.Serial:
     print(f"Открываю порт {port}...")
     try:
         ser = serial.Serial(port, baud, timeout=1)
-        # Устанавливаю DTR и RTS для USB CDC устройств на другом конце линии связи
+        # Устанавливаю DTR и RTS в Ложь
+        ser.dtr = False
+        ser.rts = False
+        time.sleep(0.1)
+        # Устанавливаю DTR и RTS для USB CDC устройств (RP2040)
         ser.dtr = True
         ser.rts = True
-        # Задержка для инициализации USB CDC
+        # задержка для инициализации USB CDC на другой стороне линии связи
         time.sleep(0.5)
         # Сбрасываю буфер, чтобы не читать старые данные
         ser.reset_input_buffer()
