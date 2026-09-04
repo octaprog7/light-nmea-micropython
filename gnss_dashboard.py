@@ -775,15 +775,23 @@ class Dashboard:
         ATTR_ERROR_REVERSE = curses.A_REVERSE | curses.color_pair(COLOR_ERROR)
         ATTR_DIM = curses.A_DIM
 
+    def show_msg(self, x: int, y: int, msg: str, attr: int = 0) -> None:
+        """Выводит текстовое сообщение в консоль"""
+        scr = self.stdscr
+        try:
+            scr.addstr(x, y, msg, attr)
+        except curses.error:
+            pass
+
     def _build_layout(self) -> None:
         """Рассчитывает размеры и создает окна, передавая им их внутренние координаты."""
         h, w = self.stdscr.getmaxyx()
         # Если окно слишком маленькое, то предупреждение
         if h < MIN_TERM_HEIGHT or w < MIN_TERM_WIDTH:
             self.stdscr.erase()
-            msg = f"Terminal too small! Minimum: {MIN_TERM_WIDTH}x{MIN_TERM_HEIGHT}. Press q, Q, ESCAPE to exit!"
+            msg_0 = f"Terminal too small! Minimum: {MIN_TERM_WIDTH}x{MIN_TERM_HEIGHT}. Press q, Q, ESCAPE to exit! Errors see in 'mcu_debug.log' file."
             try:
-                self.stdscr.addstr(h // 2, max(0, (w - len(msg)) // 2), msg, curses.A_BOLD | curses.A_REVERSE)
+                self.show_msg(h // 2, max(0, (w - len(msg_0)) // 2), msg_0, curses.A_BOLD | curses.A_REVERSE)
             except curses.error:
                 pass
             self.stdscr.noutrefresh()
