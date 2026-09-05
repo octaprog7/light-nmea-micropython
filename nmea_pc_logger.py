@@ -18,6 +18,7 @@
 
 Автор: Roman Shevchik | Лицензия: GPL-3.0"""
 import time
+import fcntl
 import serial
 import traceback
 from datetime import datetime
@@ -40,27 +41,46 @@ def _write_csv_header(file_obj, header: str = _CSV_HEADER):
     file_obj.write(header)
     file_obj.flush()
 
-def _open_serial(port: str, baud: int) -> None | serial.Serial:
-    """Открывает порт с обработкой ошибок."""
+def _open_serial(port: str, baud: int) -> serial.Serial | None:
+    """Открывает последовательный порт с обработкой ошибок.
+    Возвращает объект serial.Serial либо None при неудаче.
+    """
     print(f"Открываю порт {port}...")
     try:
         ser = serial.Serial(port, baud, timeout=1)
-        # Устанавливаю DTR и RTS в Ложь
-        ser.dtr = False
-        ser.rts = False
-        time.sleep(0.1)
-        # Устанавливаю DTR и RTS для USB CDC устройств (RP2040)
+        # захват порта:
+        #   BlockingIOError  -> порт уже занят другим процессом
+        #   FileNotFoundError -> устройство исчезло между open() и flock()
+        fcntl.flock(ser.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        #
         ser.dtr = True
         ser.rts = True
-        # задержка для инициализации USB CDC на другой стороне линии связи
+        # Задержка для инициализации USB CDC на другой стороне линии связи
         time.sleep(0.5)
         # Сбрасываю буфер, чтобы не читать старые данные
         ser.reset_input_buffer()
+        # передача байта будит стек TinyUSB CDC на плате
+        ser.write(b"\r\n")
+        ser.flush()
+        time.sleep(0.2)
+        ser.reset_input_buffer()
         print(f"Порт открыт. Пишу в {OUTPUT_FILE}")
         return ser
+
     except serial.SerialException as e:
         print(f"Ошибка. Не удалось открыть порт: {e}")
         print(f"Совет. Проверьте подключение Pico и порт {port}")
+        return None
+    except BlockingIOError:
+        print(f"Ошибка. Порт {port} уже занят другим процессом!")
+        print(f"Совет. Проверьте: sudo fuser -v {port}")
+        return None
+    except FileNotFoundError:
+        print(f"Ошибка. Устройство {port} исчезло при открытии (перезагрузка платы?)")
+        print("Совет. Смотрите dmesg: dmesg -T | grep -iE 'usb|acm'")
+        return None
+    except OSError as e:
+        print(f"Ошибка. Системная ошибка при открытии порта: {e}")
         return None
 
 serial_dev = None
