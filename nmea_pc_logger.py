@@ -21,6 +21,7 @@ import time
 import fcntl
 import serial
 import traceback
+from time import monotonic
 from datetime import datetime
 
 # Библиотека pyserial на ПК и драйверы операционной системы требуют указать скорость как обязательный аргумент при открытии порта.
@@ -32,6 +33,16 @@ BAUD_RATE = 115200
 _RECONNECT_DELAY = 2  # Cекунды между попытками переподключения
 COM_PORT = "/dev/ttyACM0"
 OUTPUT_FILE = 'gnss_log.csv'
+
+def _read_until_quiet(ser: serial.Serial, quiet_delay: float = 0.3) -> None:
+    """Вычитывает баннер REPL, пока данные не перестанут поступать."""
+    old_timeout = ser.timeout
+    ser.timeout = 0.1
+    last = monotonic()
+    while monotonic() - last < quiet_delay:
+        if ser.read(0x100):
+            last = monotonic()
+    ser.timeout = old_timeout
 
 # Заголовок CSV (пробелы после запятых убраны для парсинга)
 _CSV_HEADER = "valid,satellites,latitude,longitude,speed,course,altitude,time,date,constellation,fix_mode,hdop\n"
@@ -55,20 +66,20 @@ def _open_serial(port: str, baud: int) -> serial.Serial | None:
         #
         ser.dtr = True
         ser.rts = True
-        # Задержка для инициализации USB CDC на другой стороне линии связи
+        # Если MicroPython код перехватывает KeyboardInterrupt, то этот метод пробуждения
+        # USB-CDC стека MicroPython не сработает!
+        ser.write(b'\x03')  # Ctrl+C прерывает выполнение main.py, вернуться в REPL
         time.sleep(0.5)
-        # Сбрасываю буфер, чтобы не читать старые данные
-        ser.reset_input_buffer()
-        # передача байта будит стек TinyUSB CDC на плате
-        ser.write(b"\r\n")
+        ser.write(b'\x04')  # Ctrl+D - soft reset REPL
         ser.flush()
-        time.sleep(0.2)
+        time.sleep(1.5)  # перезагрузка и старт main.py (DTR уже поднят)
+        _read_until_quiet(ser) # вычитывает REPL-заставку
         ser.reset_input_buffer()
         print(f"Порт открыт. Пишу в {OUTPUT_FILE}")
         return ser
 
-    except serial.SerialException as e:
-        print(f"Ошибка. Не удалось открыть порт: {e}")
+    except serial.SerialException as ex:
+        print(f"Ошибка. Не удалось открыть порт: {ex}")
         print(f"Совет. Проверьте подключение Pico и порт {port}")
         return None
     except BlockingIOError:
@@ -79,8 +90,8 @@ def _open_serial(port: str, baud: int) -> serial.Serial | None:
         print(f"Ошибка. Устройство {port} исчезло при открытии (перезагрузка платы?)")
         print("Совет. Смотрите dmesg: dmesg -T | grep -iE 'usb|acm'")
         return None
-    except OSError as e:
-        print(f"Ошибка. Системная ошибка при открытии порта: {e}")
+    except OSError as ex:
+        print(f"Ошибка. Системная ошибка при открытии порта: {ex}")
         return None
 
 serial_dev = None
