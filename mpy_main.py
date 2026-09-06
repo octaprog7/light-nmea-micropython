@@ -18,12 +18,8 @@ import gc
 import sys
 import time
 
-# ожидание инициализации устройства /dev/ttyXXX на Linux ПК
-time.sleep_ms(1000)
-
 try:
-    # прогрев USB-CDC
-    sys.stdout.write("\r\n")
+    # Пробуждение USB-CDC теперь целиком на стороне ПК (0x03 -> 0x04)!
     from micropython import const
 except ImportError as ex:
     print("Error: Code run under MicroPython ONLY!")
