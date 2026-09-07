@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import time
+from array import array
 from light_nmea.gnss_parser_base import IGNSSParser
 
 try:
@@ -228,9 +229,9 @@ def _get_constellation(talker_byte_1: int, talker_byte_2: int) -> int:
 
 # === Модульные функции ===
 @native
-def _scan_line(line_bytes: bytes, comma_pos: bytearray) -> int:
+def _scan_line(line_bytes: bytes, comma_pos: bytearray, packet_len: int) -> int:
     """Однопроходный сканер + CRC проверка. Возвращает star_idx в старшем байте и comma_count в младшем) или _SCAN_LINE_ERROR."""
-    line_len: int = len(line_bytes)
+    line_len: int = packet_len
     if line_len < _MIN_PACKET_LEN or line_bytes[0] != _DOLLAR:
         return _SCAN_LINE_ERROR
 
@@ -306,7 +307,7 @@ class LightNMEA(IGNSSParser):
     def __init__(self, trust_gga_fix: bool = False, enable_diagnostics: bool = False) -> None:
         # Внутренние буферы для парсинга
         self._parse_buffer = bytearray(_MAX_PACKET_SIZE)    # Буфер для копирования входных данных
-        self._time_buffer: list = 9 * [-1]  # Буфер для конвертации времени в tuple
+        self._time_buffer = array('i', [-1] * 9)  # компактное хранилище
         self._comma_pos: bytearray = bytearray(_MAX_COMMAS) # Позиции запятых в пакете (для быстрого доступа к полям)
         # Настройки парсера
         self._trust_gga: bool = trust_gga_fix   # Если True, использовать GGA для установки valid и fix_mode
@@ -425,15 +426,17 @@ class LightNMEA(IGNSSParser):
         """Конвертирует дату/время в кортеж."""
         if not self._update_time_buffer():
             return None
-        seconds = time.mktime(self._time_buffer) # type: ignore
+        loc_buf = self._time_buffer
+        seconds = time.mktime(tuple(loc_buf)) # type: ignore
         return time.localtime(seconds)
 
     def sync_hardware_rtc(self, rtc_object) -> None:
         """Синхронизация RTC."""
         if self._update_time_buffer():
+            loc_buf = self._time_buffer
             rtc_object.datetime((
-                self._time_buffer[0], self._time_buffer[1], self._time_buffer[2], 0,
-                self._time_buffer[3], self._time_buffer[4], self._time_buffer[5], 0
+                loc_buf[0], loc_buf[1], loc_buf[2], 0,
+                loc_buf[3], loc_buf[4], loc_buf[5], 0
             ))
 
     @native
@@ -500,14 +503,16 @@ class LightNMEA(IGNSSParser):
             self.reset(RESET_RMC)
             return False
 
-        # Скорость и курс (один memoryview)
-        rmc_mv = memoryview(line_bytes)
-
+        # Скорость и курс (один memoryview, создаётся только когда нужен)
         sp_st, sp_en = cp[6] + 1, cp[7]
-        self.speed = float(rmc_mv[sp_st:sp_en]) * _KNOTS_TO_KMH if sp_en > sp_st else None
-
         cr_st, cr_en = cp[7] + 1, cp[8]
-        self.course = float(rmc_mv[cr_st:cr_en]) if cr_en > cr_st else None
+        if sp_en > sp_st or cr_en > cr_st:
+            rmc_mv = memoryview(line_bytes)
+            self.speed = float(rmc_mv[sp_st:sp_en]) * _KNOTS_TO_KMH if sp_en > sp_st else None
+            self.course = float(rmc_mv[cr_st:cr_en]) if cr_en > cr_st else None
+        else:
+            self.speed = None
+            self.course = None
 
         # Дата (поле 9)
         self.date = line_bytes[cp[8] + 1:cp[9]]
@@ -574,22 +579,24 @@ class LightNMEA(IGNSSParser):
                 self.reject_too_short += 1
             return False
 
-        vtg_mv = memoryview(line_bytes)
         cp = self._comma_pos
 
         # Курс
         cr_st, cr_en = cp[0] + 1, cp[1]
         if cr_en > cr_st:
+            vtg_mv = memoryview(line_bytes)
             self.course = float(vtg_mv[cr_st:cr_en])
 
         # Скорость в узлах
         sp_st, sp_en = cp[4] + 1, cp[5]
         if sp_en > sp_st:
+            vtg_mv = memoryview(line_bytes)
             self.speed = float(vtg_mv[sp_st:sp_en]) * _KNOTS_TO_KMH
 
         # Скорость в км/ч (перезаписывает, если есть)
         sp_kmh_st, sp_kmh_en = cp[6] + 1, cp[7]
         if sp_kmh_en > sp_kmh_st:
+            vtg_mv = memoryview(line_bytes)
             self.speed = float(vtg_mv[sp_kmh_st:sp_kmh_en])
 
         return True
@@ -667,11 +674,12 @@ class LightNMEA(IGNSSParser):
                 self.reject_unknown_msg += 1
             return False
 
-        # Копирую в pre-allocated буфер и сканирую только нужные сообщения
-        self._parse_buffer[:packet_len] = buf[start:end]
+        # Копирую в pre-allocated буфер (единый проход без промежуточного среза)
+        # и сканирую только нужные сообщения
+        self._parse_buffer[:packet_len] = memoryview(buf)[start:end]
         line_bytes = self._parse_buffer
 
-        scan_res = _scan_line(line_bytes, self._comma_pos)
+        scan_res = _scan_line(line_bytes, self._comma_pos, packet_len)
         if scan_res == _SCAN_LINE_ERROR:
             if diag:
                 self.reject_crc += 1
