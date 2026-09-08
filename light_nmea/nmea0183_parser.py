@@ -26,11 +26,6 @@ try:
 except ImportError:
     def native(f): return f
 
-try:
-    from micropython import viper
-except ImportError:
-    def viper(f): return f
-
 # постоянные
 _MAX_PACKET_SIZE = const(120)   # Максимальная длина NMEA-пакета в ASCII
 _MIN_PACKET_SIZE = const(8)     # Минимальная длина NMEA-пакета в ASCII
