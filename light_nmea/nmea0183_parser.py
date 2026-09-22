@@ -120,47 +120,59 @@ _CST_LOOKUP_BY_SECOND_BYTE = (
     CST_QZSS,      # 81 'Q'   GQ - Япония
 )
 
-# Mode indicator из RMC - тип фикса
+# Mode indicator из RMC (FAA Mode, NMEA 2.3+) - тип фикса
+# Буквы по https://gpsd.gitlab.io/gpsd/NMEA.html:
+#   'F' = RTK Float, 'P' = Precise, 'R' = RTK Integer (fixed)
 FIX_AUTONOMOUS = const(0)  # 'A';   с точностью до дома
 FIX_DGPS       = const(1)  # 'D';   с точностью до квартиры
 FIX_ESTIMATED  = const(2)  # 'E';   вы где-то рядом
 FIX_NOT_VALID  = const(3)  # 'N';   Не(!) знаю, где вы
-FIX_RTK_FIXED  = const(4)  # 'P';   Профессиональное геодезическое оборудование!
-FIX_RTK_FLOAT  = const(5)  # 'R';   Почти точно, но уточняю!
+FIX_RTK_FIXED  = const(4)  # 'R'/'P'; Профессиональное геодезическое оборудование!
+FIX_RTK_FLOAT  = const(5)  # 'F';   Почти точно, но уточняю!
 
-# Lookup таблица: ASCII код -> Fix Mode
+# Lookup таблица: ASCII код -> Fix Mode (FAA Mode Indicator, NMEA 2.3+)
 # Диапазон: 'A'(65) до 'R'(82) = 18 элементов
 # Индекс = (ascii_code - 65)
+# Значения по https://gpsd.gitlab.io/gpsd/NMEA.html (FAA Mode Indicator):
+#   A=Autonomous, D=Differential, E=Estimated, F=RTK Float, M=Manual,
+#   N=Data Not Valid, P=Precise (4.00+), R=RTK Integer (fixed), S=Simulated.
+#   C/U - проприетарные Quectel-режимы; B/G/H/I/J/K/L/O/Q - не назначены.
 _FIX_MODE_TABLE = (
-    FIX_AUTONOMOUS,  # 65: 'A'
-    FIX_NOT_VALID,   # 66: 'B' (не используется)
-    FIX_NOT_VALID,   # 67: 'C'
-    FIX_DGPS,        # 68: 'D'
-    FIX_ESTIMATED,   # 69: 'E'
-    FIX_NOT_VALID,   # 70: 'F'
-    FIX_NOT_VALID,   # 71: 'G'
-    FIX_NOT_VALID,   # 72: 'H'
-    FIX_NOT_VALID,   # 73: 'I'
-    FIX_NOT_VALID,   # 74: 'J'
-    FIX_NOT_VALID,   # 75: 'K'
-    FIX_NOT_VALID,   # 76: 'L'
-    FIX_NOT_VALID,   # 77: 'M'
-    FIX_NOT_VALID,   # 78: 'N'
-    FIX_NOT_VALID,   # 79: 'O'
-    FIX_RTK_FIXED,   # 80: 'P'
-    FIX_NOT_VALID,   # 81: 'Q'
-    FIX_RTK_FLOAT,   # 82: 'R'
+    FIX_AUTONOMOUS,   # 65: 'A' Autonomous
+    FIX_NOT_VALID,    # 66: 'B' (не назначен)
+    FIX_NOT_VALID,    # 67: 'C' (Quectel "Caution", проприетарный)
+    FIX_DGPS,         # 68: 'D' Differential
+    FIX_ESTIMATED,    # 69: 'E' Estimated (dead reckoning)
+    FIX_RTK_FLOAT,    # 70: 'F' RTK Float
+    FIX_NOT_VALID,    # 71: 'G' (не назначен)
+    FIX_NOT_VALID,    # 72: 'H' (не назначен)
+    FIX_NOT_VALID,    # 73: 'I' (не назначен)
+    FIX_NOT_VALID,    # 74: 'J' (не назначен)
+    FIX_NOT_VALID,    # 75: 'K' (не назначен)
+    FIX_NOT_VALID,    # 76: 'L' (не назначен)
+    FIX_NOT_VALID,    # 77: 'M' Manual input (не GNSS-фикс)
+    FIX_NOT_VALID,    # 78: 'N' Data not valid
+    FIX_NOT_VALID,    # 79: 'O' (не назначен)
+    FIX_RTK_FIXED,    # 80: 'P' Precise (геодезия, ~= RTK fixed)
+    FIX_NOT_VALID,    # 81: 'Q' (не назначен)
+    FIX_RTK_FIXED,    # 82: 'R' RTK Integer (fixed)
 )
 
 # качество фикса из GGA (поле 6) в тип фикса
-# Индекс = значение fix_quality (0-5)
+# Индекс = значение fix_quality (0-8)
+# Значения по https://gpsd.gitlab.io/gpsd/NMEA.html (GGA, поле 6):
+#   0=нет фикса, 1=GPS, 2=DGPS, 3=PPS, 4=RTK fixed, 5=RTK float,
+#   6=estimated, 7=manual input, 8=simulation
 _GGA_QUALITY_FIX_MODE = (
     FIX_NOT_VALID,    # 0: Fix not available or invalid
     FIX_AUTONOMOUS,   # 1: GPS SPS Mode, fix valid
     FIX_DGPS,         # 2: Differential GPS, SPS Mode
-    FIX_NOT_VALID,    # 3: PPS Mode (редко)
+    FIX_AUTONOMOUS,   # 3: PPS fix (валидный режим, точная привязка времени)
     FIX_RTK_FIXED,    # 4: Real Time Kinematic (Fixed)
     FIX_RTK_FLOAT,    # 5: Real Time Kinematic (Float)
+    FIX_ESTIMATED,    # 6: Estimated (dead reckoning)
+    FIX_NOT_VALID,    # 7: Manual input mode (не GNSS-фикс)
+    FIX_NOT_VALID,    # 8: Simulation mode (не реальный фикс)
 )
 
 _GGA_QUALITY_FIX_MODE_LEN = len(_GGA_QUALITY_FIX_MODE)
