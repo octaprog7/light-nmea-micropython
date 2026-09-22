@@ -62,6 +62,11 @@ LABEL_X_DEFAULT = 2  # Отступ метки по умолчанию (испо
 CONTENT_START_Y = 2
 PLACEHOLDER = "---"  # Заполнитель для отсутствующих значений
 
+# Максимальный размер буфера строки от MCU (защита от разрастания при мусоре без '\n')
+_MAX_BUFFER_SIZE = 4096
+# Режимы фикса, которые считаются валидными GNSS-фиксами (совпадают со строками из conv_to_hrf._FIX_NAMES)
+_VALID_FIX_MODES = ("Autonomous", "DGPS", "RTK Fixed", "RTK Float")
+
 # Цвета
 COLOR_ERROR = 1
 COLOR_OK = 2
@@ -388,7 +393,7 @@ class AccuracyTracker:
         self.m2_lat += delta_lat * delta2_lat
         self.m2_lon += delta_lon * delta2_lon
 
-        if data.fix_mode and data.fix_mode != "Not Valid":
+        if data.fix_mode in _VALID_FIX_MODES:
             self.valid_fix_count += 1
         if data.hdop is not None:
             self.hdop_sum += data.hdop
@@ -500,6 +505,9 @@ class SerialParser:
 
         newline_idx = self._buffer.find(b'\n')
         if newline_idx == -1:
+            # Защита от разрастания буфера: нет '\n' в пределах лимита - это мусор, сбрасываем
+            if len(self._buffer) > _MAX_BUFFER_SIZE:
+                del self._buffer[:]
             return None, False, None
 
         line_bytes = self._buffer[:newline_idx]
@@ -775,11 +783,11 @@ class Dashboard:
         ATTR_ERROR_REVERSE = curses.A_REVERSE | curses.color_pair(COLOR_ERROR)
         ATTR_DIM = curses.A_DIM
 
-    def show_msg(self, x: int, y: int, msg: str, attr: int = 0) -> None:
-        """Выводит текстовое сообщение в консоль"""
+    def show_msg(self, y: int, x: int, msg: str, attr: int = 0) -> None:
+        """Выводит текстовое сообщение в консоль (addstr: сначала строка y, потом колонка x)."""
         scr = self.stdscr
         try:
-            scr.addstr(x, y, msg, attr)
+            scr.addstr(y, x, msg, attr)
         except curses.error:
             pass
 
