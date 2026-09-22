@@ -294,7 +294,28 @@ def _parse_degrees(raw_bytes: bytes, lat_st: int, lat_en: int, dir_st: int, dir_
 
     return decimal
 
-# === Класс парсера ===
+
+@native
+def _to_float(raw_bytes: bytes, st: int, en: int) -> float | None:
+    """Конвертация числового поля в float без риска исключения."""
+    if en <= st:
+        return None
+    try:
+        return float(memoryview(raw_bytes)[st:en])
+    except (ValueError, TypeError):
+        return None
+
+
+@native
+def _to_int(raw_bytes: bytes, st: int, en: int) -> int | None:
+    """Конвертация числового поля в int без риска исключения."""
+    if en <= st:
+        return None
+    try:
+        return int(memoryview(raw_bytes)[st:en])
+    except (ValueError, TypeError):
+        return None
+
 
 class LightNMEA(IGNSSParser):
     """Парсер NMEA для MicroPython."""
@@ -498,16 +519,12 @@ class LightNMEA(IGNSSParser):
             self.reset(RESET_RMC)
             return False
 
-        # Скорость и курс (один memoryview, создаётся только когда нужен)
+        # Скорость и курс
         sp_st, sp_en = cp[6] + 1, cp[7]
         cr_st, cr_en = cp[7] + 1, cp[8]
-        if sp_en > sp_st or cr_en > cr_st:
-            rmc_mv = memoryview(line_bytes)
-            self.speed = float(rmc_mv[sp_st:sp_en]) * _KNOTS_TO_KMH if sp_en > sp_st else None
-            self.course = float(rmc_mv[cr_st:cr_en]) if cr_en > cr_st else None
-        else:
-            self.speed = None
-            self.course = None
+        spd = _to_float(line_bytes, sp_st, sp_en)
+        self.speed = spd * _KNOTS_TO_KMH if spd is not None else None
+        self.course = _to_float(line_bytes, cr_st, cr_en)
 
         # Дата (поле 9)
         self.date = line_bytes[cp[8] + 1:cp[9]]
@@ -531,11 +548,10 @@ class LightNMEA(IGNSSParser):
 
         # Проверяю качество фикса (не '0' и не пусто)
         if fix_en > fix_st and line_bytes[fix_st] != _0_CHAR:
-            gga_mv = memoryview(line_bytes)
-            fix_quality = int(gga_mv[fix_st:fix_en])
+            fix_quality = _to_int(line_bytes, fix_st, fix_en)
 
             # Обновляю режим фикса из таблицы GGA
-            if fix_quality < _GGA_QUALITY_FIX_MODE_LEN:
+            if fix_quality is not None and fix_quality < _GGA_QUALITY_FIX_MODE_LEN:
                 self.fix_mode = _GGA_QUALITY_FIX_MODE[fix_quality]
 
             # парсинг координат (GGA: start_idx = 1)
@@ -545,15 +561,16 @@ class LightNMEA(IGNSSParser):
 
             # Спутники (поле 7)
             sat_st, sat_en = fix_en + 1, cp7
-            self.satellites = int(gga_mv[sat_st:sat_en]) if sat_en > sat_st else 0
+            sats = _to_int(line_bytes, sat_st, sat_en)
+            self.satellites = sats if sats is not None else 0
 
             # HDOP (поле 8)
             hdop_st, hdop_en = cp7 + 1, cp8
-            self.hdop = float(gga_mv[hdop_st:hdop_en]) if hdop_en > hdop_st else None
+            self.hdop = _to_float(line_bytes, hdop_st, hdop_en)
 
             # Высота (поле 9)
             alt_st, alt_en = cp8 + 1, cp9
-            self.altitude = float(gga_mv[alt_st:alt_en]) if alt_en > alt_st else None
+            self.altitude = _to_float(line_bytes, alt_st, alt_en)
 
             # Если доверяю GGA, он становится основным источником valid
             if trust_gga:
@@ -578,21 +595,21 @@ class LightNMEA(IGNSSParser):
 
         # Курс
         cr_st, cr_en = cp[0] + 1, cp[1]
-        if cr_en > cr_st:
-            vtg_mv = memoryview(line_bytes)
-            self.course = float(vtg_mv[cr_st:cr_en])
+        course = _to_float(line_bytes, cr_st, cr_en)
+        if course is not None:
+            self.course = course
 
         # Скорость в узлах
         sp_st, sp_en = cp[4] + 1, cp[5]
-        if sp_en > sp_st:
-            vtg_mv = memoryview(line_bytes)
-            self.speed = float(vtg_mv[sp_st:sp_en]) * _KNOTS_TO_KMH
+        spd = _to_float(line_bytes, sp_st, sp_en)
+        if spd is not None:
+            self.speed = spd * _KNOTS_TO_KMH
 
         # Скорость в км/ч (перезаписывает, если есть)
         sp_kmh_st, sp_kmh_en = cp[6] + 1, cp[7]
-        if sp_kmh_en > sp_kmh_st:
-            vtg_mv = memoryview(line_bytes)
-            self.speed = float(vtg_mv[sp_kmh_st:sp_kmh_en])
+        spd_kmh = _to_float(line_bytes, sp_kmh_st, sp_kmh_en)
+        if spd_kmh is not None:
+            self.speed = spd_kmh
 
         return True
 
