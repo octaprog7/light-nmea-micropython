@@ -27,7 +27,7 @@ except ImportError as ex:
 
 
 from machine import UART, Pin, RTC
-from light_nmea.nmea0183_parser import LightNMEA, CST_MASK_ALL, CST_MASK_GPS, CST_GLONASS, CST_MASK_MULTI
+from light_nmea.nmea0183_parser import LightNMEA, CST_MASK_ALL
 from light_nmea.nmea0183_stats import GNSSStats
 from light_nmea.nmea0183_stream import NMEAStreamReader
 from light_nmea.conv_to_hrf import to_format, FMT_CSV
@@ -56,7 +56,7 @@ parser = LightNMEA(trust_gga_fix=True, enable_diagnostics=True)
 parser.set_cst_filter(CST_MASK_ALL)  #  CST_MASK_MULTI
 stats = GNSSStats()
 rtc = RTC()
-# 15 секунд без приема данных от GNSS модуля приводят
+# 90 секунд без валидного фикса от GNSS модуля приводят
 # к ПОПЫТКЕ программного сброса модуля GNSS-приемника!
 WATCHDOG_TIMEOUT_MS = const(90_000)
 MODULE_INFO_INTERVAL_MS = const(45_000)
@@ -190,69 +190,79 @@ def gnss_mod_to_usb_bridge() -> None:
     try:
         last_time_from_gnss = b""
         while True:
-            # чтение через NMEAStreamReader
-            processed = reader.read_available(parser, stats_callback)
+            try:
+                # чтение через NMEAStreamReader
+                processed = reader.read_available(parser, stats_callback)
 
-            if processed > 0:
-                if parser.valid: # сброс таймера при принятии данных от модуля GNSS
-                    last_data_time_ms = time.ticks_ms()
-                # Обработка координат
-                if parser.has_coordinates():
-                    # Синхронизация RTC при первом фиксе
-                    par_time = parser.time
-                    if not rtc_synced and par_time and _is_date_valid(parser.date):
-                        try:
-                            parser.sync_hardware_rtc(rtc)
-                            rtc_synced = True
-                            if not only_gnss:
-                                print(f"RTC is synchronized: {parser.date} {par_time}")
-                        except Exception as e:
-                            rtc_sync_attempts += 1
-                            if not only_gnss:
-                                print(f"RTC synchronization error ({rtc_sync_attempts}/{_RTC_SYNC_MAX_ATTEMPTS}): {e}")
-                            if rtc_sync_attempts >= _RTC_SYNC_MAX_ATTEMPTS:
-                                rtc_synced = True  # Сдаюсь после _RTC_SYNC_MAX_ATTEMPTS попыток
+                if processed > 0:
+                    if parser.valid: # сброс таймера ТОЛЬКО при валидном фиксе (а не просто при данных)
+                        last_data_time_ms = time.ticks_ms()
+                    # Обработка координат
+                    if parser.has_coordinates():
+                        # Синхронизация RTC при первом фиксе
+                        par_time = parser.time
+                        if not rtc_synced and par_time and _is_date_valid(parser.date):
+                            try:
+                                parser.sync_hardware_rtc(rtc)
+                                rtc_synced = True
                                 if not only_gnss:
-                                    print(f"RTC not available after {_RTC_SYNC_MAX_ATTEMPTS} attempts, synchronization disabled!")
+                                    print(f"RTC is synchronized: {parser.date} {par_time}")
+                            except Exception as e:
+                                rtc_sync_attempts += 1
+                                if not only_gnss:
+                                    print(f"RTC synchronization error ({rtc_sync_attempts}/{_RTC_SYNC_MAX_ATTEMPTS}): {e}")
+                                if rtc_sync_attempts >= _RTC_SYNC_MAX_ATTEMPTS:
+                                    rtc_synced = True  # Сдаюсь после _RTC_SYNC_MAX_ATTEMPTS попыток
+                                    if not only_gnss:
+                                        print(f"RTC not available after {_RTC_SYNC_MAX_ATTEMPTS} attempts, synchronization disabled!")
 
-                    if par_time != last_time_from_gnss and parser.hdop is not None:
-                        # Вывод данных пакета при наличии фикса
-                        if print_packet_info:
-                            _print_packet_data(parser, only_gnss)
-                        last_time_from_gnss = par_time
+                        if par_time != last_time_from_gnss and parser.hdop is not None:
+                            # Вывод данных пакета при наличии фикса
+                            if print_packet_info:
+                                _print_packet_data(parser, only_gnss)
+                            last_time_from_gnss = par_time
 
-                # Вывод статистики
-                if not only_gnss:
-                    if stats.total % STATS_PRINT_LIMIT == 0:
-                        print(f"Пакетов: {stats.total}, Фикс: {stats.valid_fix}, Поиск: {stats.no_fix}, Отклонено: {stats.rejected}, Анти-спам: {reader.anti_spam_dropped}")
-
-                # Принудительный GC
-                gc_counter += processed
-                if gc_counter >= GC_CALL_LIMIT:
-                    gc.collect()
-                    gc_counter = 0
-            else:
-                # WATCHDOG. Данные не приходят
-                elapsed = time.ticks_diff(time.ticks_ms(), last_data_time_ms)
-                if elapsed > WATCHDOG_TIMEOUT_MS:
+                    # Вывод статистики
                     if not only_gnss:
-                        print(f"!!! WATCHDOG: No data incoming {elapsed} ms. Software module reset !")
-                    # Уведомляю Host о программном сбросе!
-                    send_to_host(MSG_TYPE_SOFTWARE_RESET, "software reset started")
-                    send_gnss_reset(uart, current_module_id, not only_gnss)
-                    time.sleep_ms(2200)
-                    last_data_time_ms = time.ticks_ms()
-                    while uart.any():
-                        uart.read(uart.any())
-                else:
-                    # Короткая пауза, чтобы не грузить CPU, если данных нет
-                    time.sleep_ms(10)
+                        if stats.total % STATS_PRINT_LIMIT == 0:
+                            print(f"Пакетов: {stats.total}, Фикс: {stats.valid_fix}, Поиск: {stats.no_fix}, Отклонено: {stats.rejected}, Анти-спам: {reader.anti_spam_dropped}")
 
-            # отправка имени производителя GNSS приемника
-            # напоминаю ПК о типе модуля
-            if time.ticks_diff(time.ticks_ms(), last_module_info_time) > MODULE_INFO_INTERVAL_MS:
-                send_to_host(MSG_TYPE_MODULE_DETECTED, module_name)
-                last_module_info_time = time.ticks_ms()
+                    # Принудительный GC
+                    gc_counter += processed
+                    if gc_counter >= GC_CALL_LIMIT:
+                        gc.collect()
+                        gc_counter = 0
+                else:
+                    # WATCHDOG. Данные не приходят
+                    elapsed = time.ticks_diff(time.ticks_ms(), last_data_time_ms)
+                    if elapsed > WATCHDOG_TIMEOUT_MS:
+                        if not only_gnss:
+                            print(f"!!! WATCHDOG: No data incoming {elapsed} ms. Software module reset !")
+                        # Уведомляю Host о программном сбросе!
+                        send_to_host(MSG_TYPE_SOFTWARE_RESET, "software reset started")
+                        send_gnss_reset(uart, current_module_id, not only_gnss)
+                        time.sleep_ms(2200)
+                        last_data_time_ms = time.ticks_ms()
+                        while uart.any():
+                            uart.read(uart.any())
+                    else:
+                        # Короткая пауза, чтобы не грузить CPU, если данных нет
+                        time.sleep_ms(10)
+
+                # отправка имени производителя GNSS приемника
+                # напоминаю ПК о типе модуля
+                if time.ticks_diff(time.ticks_ms(), last_module_info_time) > MODULE_INFO_INTERVAL_MS:
+                    send_to_host(MSG_TYPE_MODULE_DETECTED, module_name)
+                    last_module_info_time = time.ticks_ms()
+            except KeyboardInterrupt:
+                raise
+            except Exception as e:
+                # Защита от "тихой смерти" моста: ошибка UART/чтения не должна
+                # останавливать главный цикл. В only_gnss режиме вывод в stdout
+                # нарушил бы CSV-контракт с дашбордом, поэтому печать в отладке.
+                if not only_gnss:
+                    print(f"Bridge loop error: {type(e).__name__}: {e}")
+                time.sleep_ms(50)
 
     except KeyboardInterrupt:
         if not only_gnss:
