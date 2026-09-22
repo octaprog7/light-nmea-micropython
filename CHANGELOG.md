@@ -7,15 +7,15 @@ All notable changes to the light_nmea project will be documented in this file.
 ### Fixed
 - **Parser. Robustness against malformed numeric fields:** Added module-level helpers `_to_float()` and `_to_int()` with `@native` and `try/except (ValueError, TypeError)`. Numeric conversions in `_parse_rmc` (speed, course), `_parse_gga` (fix quality, satellites, HDOP, altitude) and `_parse_vtg` (course, speed knots/km/h) are now protected — a packet with a non-numeric field (e.g. `abc` as speed) and a valid CRC previously raised `ValueError`, aborting the calling main loop. A corrupted field now yields `None`/`0` while the rest of the packet is still parsed.
 - **Parser. Fix-mode tables aligned with NMEA-0183 (gpsd reference):**
-  - `_FIX_MODE_TABLE` (RMC field 12, FAA Mode Indicator): `'F'` → `FIX_RTK_FLOAT`, `'R'` → `FIX_RTK_FIXED` (RTK Integer) — the letters were swapped; `'P'` (Precise) documented as ≈ `FIX_RTK_FIXED`.
-  - `_GGA_QUALITY_FIX_MODE` (GGA field 6): extended from 0–5 to 0–8 — added `6` (Estimated → `FIX_ESTIMATED`), `7` (Manual input → `FIX_NOT_VALID`), `8` (Simulation → `FIX_NOT_VALID`); `3` (PPS) now maps to `FIX_AUTONOMOUS` instead of `FIX_NOT_VALID`.
+  - `_FIX_MODE_TABLE` (RMC field 12, FAA Mode Indicator): `'F'` -> `FIX_RTK_FLOAT`, `'R'` -> `FIX_RTK_FIXED` (RTK Integer) — the letters were swapped; `'P'` (Precise) documented as ≈ `FIX_RTK_FIXED`.
+  - `_GGA_QUALITY_FIX_MODE` (GGA field 6): extended from 0–5 to 0–8 — added `6` (Estimated -> `FIX_ESTIMATED`), `7` (Manual input -> `FIX_NOT_VALID`), `8` (Simulation -> `FIX_NOT_VALID`); `3` (PPS) now maps to `FIX_AUTONOMOUS` instead of `FIX_NOT_VALID`.
 - **Dashboard. `show_msg()`:** Fixed swapped `y`/`x` arguments in `curses.addstr()` — the "Terminal too small" warning is now drawn in the correct position.
 - **Dashboard. Accuracy analysis:** `AccuracyTracker` now counts only real GNSS fixes (`_VALID_FIX_MODES`: Autonomous, DGPS, RTK Fixed, RTK Float) — `Unknown` and `Estimated` are no longer counted as valid, so the valid-fix percentage is honest.
 - **Dashboard. Serial buffer:** Added `_MAX_BUFFER_SIZE` (4096) limit in `SerialParser.poll()` — a byte stream without `\n` (UART garbage) can no longer grow the buffer unboundedly.
 
 ### Changed
 - **Parser.** Redundant `memoryview` allocations removed in `_parse_rmc` and `_parse_vtg` — slices are now created once per field via the `_to_float`/`_to_int` helpers.
-- **Parser.** Comments for `FIX_*` constants updated to match the standard letter assignments (`'R'`/`'P'` → `FIX_RTK_FIXED`, `'F'` → `FIX_RTK_FLOAT`).
+- **Parser.** Comments for `FIX_*` constants updated to match the standard letter assignments (`'R'`/`'P'` -> `FIX_RTK_FIXED`, `'F'` -> `FIX_RTK_FLOAT`).
 
 ### Added
 - **Test packets generator (`nav_gen.py`):** 7 new packets (indices 24–30) with invalid numeric fields and valid checksums — RMC speed `xyz`, RMC course `abc`, GGA HDOP `abc`, GGA satellites `xx`, GGA altitude `15x.3`, VTG km/h `4.72x`, VTG course `08x.4`. They pass the CRC check, reach the numeric conversion and exercise the new exception protection. Existing packet indices used by tests are unaffected.
