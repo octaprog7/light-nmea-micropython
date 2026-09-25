@@ -2,7 +2,7 @@
 
 All notable changes to the light_nmea project will be documented in this file.
 
-## - 2026-09-22
+## [2.4.1] - 2026-09-22
 
 ### Fixed
 - **Parser. Robustness against malformed numeric fields:** Added module-level helpers `_to_float()` and `_to_int()` with `@native` and `try/except (ValueError, TypeError)`. Numeric conversions in `_parse_rmc` (speed, course), `_parse_gga` (fix quality, satellites, HDOP, altitude) and `_parse_vtg` (course, speed knots/km/h) are now protected — a packet with a non-numeric field (e.g. `abc` as speed) and a valid CRC previously raised `ValueError`, aborting the calling main loop. A corrupted field now yields `None`/`0` while the rest of the packet is still parsed.
