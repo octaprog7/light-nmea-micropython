@@ -27,16 +27,21 @@ import time
 import math
 import serial
 import curses
-from datetime import datetime
 import serial.tools.list_ports
-from typing import Optional, Tuple, List, IO
+from typing import Optional, Tuple, List
+from dash_utils import (DATA_STREAM_UNKNOWN, DATA_STREAM_CSV, DATA_STREAM_NMEA_0183,
+                        detect_format, log_msg, now, format_speed, get_port_type,
+                        format_nmea_datetime, get_fix_name_by_index)
+# импорт парсера для разбора сырого потока NMEA-0183 от GNSS-приемников с USB выходом (поток по USB-CDC)
+from light_nmea.nmea0183_parser import LightNMEA, CST_MASK_ALL
 
+from typing import TYPE_CHECKING
 
-def log_msg(message: str, destination: IO[str]) -> None:
-    """Выводит сообщение в destination с временной меткой в формате журнала."""
-    timestamp = datetime.now().strftime("%d-%m-%Y %H:%M:%S")
-    print(f"[{timestamp}] {message}", file=destination)
-
+if TYPE_CHECKING:
+    from _curses import _CursesWindow
+else:
+    from typing import Any
+    _CursesWindow = Any
 
 # Проверка мин. версии Python
 if sys.version_info < (3, 9):
@@ -65,7 +70,8 @@ PLACEHOLDER = "---"  # Заполнитель для отсутствующих 
 # Максимальный размер буфера строки от MCU (защита от разрастания при мусоре без '\n')
 _MAX_BUFFER_SIZE = 4096
 # Режимы фикса, которые считаются валидными GNSS-фиксами (совпадают со строками из conv_to_hrf._FIX_NAMES)
-_VALID_FIX_MODES = ("Autonomous", "DGPS", "RTK Fixed", "RTK Float")
+# _FIX_NAMES = ("Autonomous", "DGPS", "Estimated", "Not Valid", "RTK Fixed", "RTK Float")
+_VALID_FIX_MODES = ("Autonomous", "DGPS", "Estimated", "Not Valid", "RTK Fixed", "RTK Float")
 
 # Цвета
 COLOR_ERROR = 1
@@ -115,25 +121,7 @@ MIN_TERM_HEIGHT = 24
 # Минимальная ширина терминала
 MIN_TERM_WIDTH = 80
 
-
 # Утилиты
-def now() -> float:
-    """Возвращает текущее время в секундах (monotonic)."""
-    return time.monotonic()
-
-
-def get_port_type(port: str) -> str:
-    """Определяет тип порта по имени устройства."""
-    return "USB-UART" if "ttyACM" in port or "ttyUSB" in port else "Serial"
-
-
-def format_speed(speed: Optional[float]) -> str:
-    """Форматирует скорость в км/ч."""
-    if speed is None:
-        return f"{PLACEHOLDER} km/h"
-    return f"{speed * _TO_KMH:.1f} km/h"
-
-
 def reset_stationary_state(stats: 'DashboardStats') -> None:
     """Сбрасывает состояние стационарности и трекер точности."""
     stats.is_stationary = False
@@ -223,6 +211,24 @@ class GNSSData:
         obj.constellation = parts[9]
         obj.fix_mode = parts[10]
         obj.hdop = float(parts[11]) if parts[11] else None
+        return obj
+
+    @classmethod
+    def from_parser(cls, parser: LightNMEA) -> 'GNSSData':
+        """Заполняет поля экземпляра класса информацией из полей экземпляра класса парсера"""
+        obj = cls()
+        obj.valid = parser.is_valid()
+        obj.satellites = parser.satellites if parser.satellites else None
+        obj.latitude = parser.latitude if parser.latitude else None
+        obj.longitude = parser.longitude if parser.longitude else None
+        obj.speed = parser.speed if parser.speed else None
+        obj.course = parser.course if parser.course else None
+        obj.altitude = parser.altitude if parser.altitude else None
+        obj.time = format_nmea_datetime(value=parser.time, is_time=True)
+        obj.date = format_nmea_datetime(value=parser.date, is_time=False)
+        obj.constellation = parser.constellation
+        obj.fix_mode = get_fix_name_by_index(parser.fix_mode) if parser.fix_mode is not None else ""
+        obj.hdop = parser.hdop if parser.hdop else None
         return obj
 
     @staticmethod
@@ -453,6 +459,9 @@ class SerialParser:
         self._buffer = bytearray()
         self._read = None
         self._open()
+        # создаю парсер для разбора сырого NMEA-0183 потока
+        self._raw_parser = LightNMEA(trust_gga_fix=True, enable_diagnostics=True)
+        self._raw_parser.set_cst_filter(CST_MASK_ALL)  # CST_MASK_MULTI
 
     def _open(self) -> bool:
         try:
@@ -513,14 +522,35 @@ class SerialParser:
         line_bytes = self._buffer[:newline_idx]
         del self._buffer[:newline_idx + 1]
 
-        line_str = line_bytes.decode('utf-8', errors='ignore').strip()
+        line_str: str = line_bytes.decode('utf-8', errors='ignore').strip()
+
         if not line_str:
             return None, False, None
 
         try:
             if SYS_MSG_PREFIX in line_str:
                 return None, False, line_str
-            return GNSSData.from_csv(line_str), False, line_str
+
+            stream_format = detect_format(line_str)
+
+            if DATA_STREAM_UNKNOWN == stream_format:
+                return None, False, line_str
+
+            if DATA_STREAM_CSV == stream_format:
+                return GNSSData.from_csv(line_str), False, line_str
+
+            if DATA_STREAM_NMEA_0183 == stream_format:
+                # разбор NMEA-0183 отдельным парсером
+                raw_parser = self._raw_parser
+                if raw_parser.parse_line(line_bytes): # разбор линии сырых данных
+                    if raw_parser.has_coordinates and raw_parser.hdop:
+                        return GNSSData.from_parser(raw_parser), False, line_str
+                # Если NMEA распарсился, но координат нет, то возвращаю None, но логирую строку
+                return None, False, line_str
+
+            # Страховка. Если формат не совпал ни с одним известным
+            return None, False, line_str
+
         except ValueError:
             return None, True, line_str
 
@@ -988,7 +1018,7 @@ def main(stdscr: 'curses.window') -> None:
 
 if __name__ == "__main__":
     try:
-        curses.wrapper(main)
+        curses.wrapper(main)    # type: ignore[arg-type]
     except RuntimeError as e:
         log_msg(str(e), sys.stderr)
         sys.exit(1)
