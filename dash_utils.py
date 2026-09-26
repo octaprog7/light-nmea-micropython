@@ -13,8 +13,6 @@ _TO_KM_H = 1.0
 DATA_STREAM_UNKNOWN = 0
 DATA_STREAM_CSV = 1
 DATA_STREAM_NMEA_0183 = 2
-# строковые наименования режимов фикса
-_FIX_NAMES = "Autonomous", "DGPS", "Estimated", "Not Valid", "RTK Fixed", "RTK Float"
 
 
 def now() -> float:
@@ -82,10 +80,3 @@ def format_nmea_datetime(value: bytes | bytearray, is_time: bool = True) -> str:
     if len(val) != six:
         return val
     return f"{val[0:2]}.{val[2:4]}.20{val[4:six]}"
-
-
-def get_fix_name_by_index(index: int) -> str:
-    """Возвращает строковое наименования режимов фикса по индексу."""
-    if 0 <= index < 6:
-        return _FIX_NAMES[index]
-    return "Unknown"
