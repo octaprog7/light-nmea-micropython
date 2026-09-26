@@ -31,9 +31,11 @@ import serial.tools.list_ports
 from typing import Optional, Tuple, List
 from dash_utils import (DATA_STREAM_UNKNOWN, DATA_STREAM_CSV, DATA_STREAM_NMEA_0183,
                         detect_format, log_msg, now, format_speed, get_port_type,
-                        format_nmea_datetime, get_fix_name_by_index)
+                        format_nmea_datetime)
 # импорт парсера для разбора сырого потока NMEA-0183 от GNSS-приемников с USB выходом (поток по USB-CDC)
 from light_nmea.nmea0183_parser import LightNMEA, CST_MASK_ALL
+# единая точка преобразования индексов созвездий (CST_*) и режимов фикса (FIX_*) в имена
+from light_nmea.conv_to_hrf import cst_index_to_name, fix_index_to_name, is_valid_fix_name
 
 from typing import TYPE_CHECKING
 
@@ -69,9 +71,7 @@ PLACEHOLDER = "---"  # Заполнитель для отсутствующих 
 
 # Максимальный размер буфера строки от MCU (защита от разрастания при мусоре без '\n')
 _MAX_BUFFER_SIZE = 4096
-# Режимы фикса, которые считаются валидными GNSS-фиксами (совпадают со строками из conv_to_hrf._FIX_NAMES)
-# _FIX_NAMES = ("Autonomous", "DGPS", "Estimated", "Not Valid", "RTK Fixed", "RTK Float")
-_VALID_FIX_MODES = ("Autonomous", "DGPS", "Estimated", "Not Valid", "RTK Fixed", "RTK Float")
+# Режимы фикса, которые считаются валидными GNSS-фиксами (см. FIX_NAMES в light_nmea/conv_to_hrf.py)
 
 # Цвета
 COLOR_ERROR = 1
@@ -226,8 +226,9 @@ class GNSSData:
         obj.altitude = parser.altitude if parser.altitude else None
         obj.time = format_nmea_datetime(value=parser.time, is_time=True)
         obj.date = format_nmea_datetime(value=parser.date, is_time=False)
-        obj.constellation = parser.constellation
-        obj.fix_mode = get_fix_name_by_index(parser.fix_mode) if parser.fix_mode is not None else ""
+        # Парсер хранит индекс созвездия (CST_*), приводим его к имени как в CSV-потоке
+        obj.constellation = cst_index_to_name(parser.constellation)
+        obj.fix_mode = fix_index_to_name(parser.fix_mode) if parser.fix_mode is not None else ""
         obj.hdop = parser.hdop if parser.hdop else None
         return obj
 
@@ -399,7 +400,7 @@ class AccuracyTracker:
         self.m2_lat += delta_lat * delta2_lat
         self.m2_lon += delta_lon * delta2_lon
 
-        if data.fix_mode in _VALID_FIX_MODES:
+        if is_valid_fix_name(data.fix_mode):
             self.valid_fix_count += 1
         if data.hdop is not None:
             self.hdop_sum += data.hdop
@@ -543,7 +544,7 @@ class SerialParser:
                 # разбор NMEA-0183 отдельным парсером
                 raw_parser = self._raw_parser
                 if raw_parser.parse_line(line_bytes): # разбор линии сырых данных
-                    if raw_parser.has_coordinates and raw_parser.hdop:
+                    if raw_parser.has_coordinates() and raw_parser.hdop:
                         return GNSSData.from_parser(raw_parser), False, line_str
                 # Если NMEA распарсился, но координат нет, то возвращаю None, но логирую строку
                 return None, False, line_str
