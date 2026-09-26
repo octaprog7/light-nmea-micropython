@@ -55,6 +55,25 @@ _CST_NAMES = ("Unknown", "GPS", "GLONASS", "Galileo", "BeiDou", "QZSS", "NavIC",
 _FIX_NAMES = ("Autonomous", "DGPS", "Estimated", "Not Valid", "RTK Fixed", "RTK Float")
 
 
+def cst_index_to_name(cst) -> str:
+    """Возвращает имя созвездия по индексу CST_*. Для неизвестного индекса - 'Unknown'."""
+    if cst is None or not 0 <= cst < len(_CST_NAMES):
+        return 'Unknown'
+    return _CST_NAMES[cst]
+
+
+def fix_index_to_name(fix_mode) -> str:
+    """Возвращает имя режима фикса по индексу FIX_*. Для неизвестного индекса - 'Unknown'."""
+    if fix_mode is None or not 0 <= fix_mode < len(_FIX_NAMES):
+        return 'Unknown'
+    return _FIX_NAMES[fix_mode]
+
+
+def is_valid_fix_name(name: str) -> bool:
+    """Возвращает True, если name - известное имя режима фикса (из FIX_NAMES)."""
+    return name in _FIX_NAMES
+
+
 # === Вспомогательные функции форматирования ===
 @native
 def _fmt_dt(value, is_time: bool = True) -> str:
@@ -104,23 +123,11 @@ def _to_txt(parser) -> str:
 
 def _to_csv(parser) -> str:
     """Преобразует данные парсера в CSV-строку."""
-    # получаю имя созвездия
-    cst = parser.constellation
-    if cst is None:
-        cst_name = 'Unknown'
-    elif cst < len(_CST_NAMES):
-        cst_name = str(_CST_NAMES[cst])
-    else:
-        cst_name = f"U{cst}"
+    # получаю имя созвездия (единая точка преобразования: cst_index_to_name)
+    cst_name = cst_index_to_name(parser.constellation)
 
-    # получаю имя режима фикса
-    fm = parser.fix_mode
-    if fm is None:
-        fix_name = 'Unknown'
-    elif fm < len(_FIX_NAMES):
-        fix_name = str(_FIX_NAMES[fm])
-    else:
-        fix_name = f"U{fm}"
+    # получаю имя режима фикса (единая точка преобразования: fix_index_to_name)
+    fix_name = fix_index_to_name(parser.fix_mode)
 
     # Привожу к строкам с защитой от None
     valid = str(int(parser.valid)) if parser.valid is not None else '0'
