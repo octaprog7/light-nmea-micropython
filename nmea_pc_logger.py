@@ -23,6 +23,7 @@ import serial
 import traceback
 from time import monotonic
 from datetime import datetime
+from dash_utils import DATA_STREAM_CSV, detect_format
 
 # Библиотека pyserial на ПК и драйверы операционной системы требуют указать скорость как обязательный аргумент при открытии порта.
 # Для виртуального COM-порта (USB CDC) этот параметр полностью игнорируется контроллером USB.
@@ -30,7 +31,8 @@ from datetime import datetime
 
 # НАСТРОЙКИ
 BAUD_RATE = 115200
-_RECONNECT_DELAY = 2  # Cекунды между попытками переподключения
+_RECONNECT_DELAY = 5  # Cекунды между попытками переподключения
+STR_UTF_8_FMT = 'utf-8'
 COM_PORT = "/dev/ttyACM0"
 OUTPUT_FILE = 'gnss_log.csv'
 
@@ -105,7 +107,7 @@ try:
     print("Нажми Ctrl+C для остановки\n")
     print(f"Порт открыт. Пишу в {OUTPUT_FILE}")
 
-    with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
+    with open(OUTPUT_FILE, 'a', encoding=STR_UTF_8_FMT) as f:
         if f.tell() == 0:
             _write_csv_header(f)
 
@@ -122,8 +124,10 @@ try:
 
             try:
                 if serial_dev.in_waiting > 0:
-                    line = serial_dev.readline().decode('utf-8', errors='ignore').strip()
-                    if line:
+                    line = serial_dev.readline().decode(STR_UTF_8_FMT, errors='ignore').strip()
+                    stream_format = detect_format(line)
+                    # Вывод только для CSV формата!
+                    if DATA_STREAM_CSV == stream_format:
                         packet_count += 1
                         # вывод с временем получения
                         timestamp = datetime.now().strftime("%H:%M:%S")
