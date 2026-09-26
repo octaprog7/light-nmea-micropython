@@ -19,9 +19,9 @@
 For those who do not have a GNSS receiver with a USB output to feed the NMEA stream into gnss_dashboard for parsing.
 
 RU: Читает все, что приходит по UART и пересылает это в sys.stdout.
-Для тех, у кого нет GNSS-приемника с USB выходом, чтобы передать NMEA-поток в gnss_dashboard для парсинга."""
+Для тех, у кого нет GNSS-приемника с USB выходом, чтобы передать NMEA-поток в gnss_dashboard для парсинга.
+Чтобы посмотреть, что поступает на вход ПК по USB-CDC выполните команду в CLI: 'cat /dev/ttyACM0'"""
 
-# import gc
 import sys
 import time
 
@@ -35,7 +35,8 @@ except ImportError as ex:
 
 from machine import UART, Pin
 
-# === Конфигурация ===
+# === Конфигурация/Configuration ===
+# === У вас могут быть другие(!) значения/You may have different(!) values ===
 UART_ID = const(0)
 UART_RX_PIN = const(1)
 UART_TX_PIN = const(0)
@@ -47,6 +48,13 @@ _MAX_NMEA_LENGTH = const(82)  # Стандарт NMEA-0183: макс. длина
 _MAX_NMEA_LENGTH_EXTENDED = const(256)  # Для GSV, PUBX, PQTM
 GC_CALL_LIMIT = const(100)
 STATS_PRINT_LIMIT = const(150)
+
+# размер буфера для чтения
+BUF_CHUNK_SIZE = const(256)
+MAX_BYTES_READ = BUF_CHUNK_SIZE // 2
+# для снижения загрузки MCU
+SLEEP_DELAY_MS = const(20)
+
 
 def calc_uart_timeout(baud_rate: int, max_length: int = _MAX_NMEA_LENGTH, safety_factor: float = 3.0) -> int:
     """Рассчитывает таймаут UART в миллисекундах.
@@ -66,28 +74,11 @@ def calc_uart_timeout(baud_rate: int, max_length: int = _MAX_NMEA_LENGTH, safety
     time_out_ms = int(t_string_ms * safety_factor) + 1  # +1 для округления вверх
     return time_out_ms
 
-timeout_ms = calc_uart_timeout(UART_BAUD_RATE, max_length=_MAX_NMEA_LENGTH_EXTENDED, safety_factor=3.0)
-timeout_char_ms = timeout_ms // 10  # Таймаут между символами
 
-uart = UART(
-    UART_ID,
-    baudrate=UART_BAUD_RATE,
-    rx=Pin(UART_RX_PIN),
-    tx=Pin(UART_TX_PIN),
-    rxbuf=UART_BUFFER_SIZE,
-    timeout=timeout_ms,
-    timeout_char=timeout_char_ms
-)
-
-# размер буфера для чтения
-BUF_CHUNK_SIZE = const(256)
-MAX_BYTES_READ = BUF_CHUNK_SIZE // 2
-# для снижения загрузки MCU
-NO_LOAD_MS = const(20)
-
-# === Главный цикл ===
+# === Главный цикл/Main cycle ===
 def gnss_rec_to_usb_bridge(buf: bytearray, interface: UART, destination: "typing.BinaryIO") -> None:
     """Читает данные из interface кусками размером в buf и отправляет кусками в destination."""
+    has_flush = hasattr(destination, "flush")
     try:
         while True:
             try:
@@ -102,11 +93,11 @@ def gnss_rec_to_usb_bridge(buf: bytearray, interface: UART, destination: "typing
                         continue
                     # записываю в sys.stdout
                     destination.write(buf)
-                    # Сброс буфера, если есть(!) такая возможность
-                    if hasattr(destination, "flush"):
+                    # Сброс буфера, если(!) есть такая возможность
+                    if has_flush:
                         destination.flush()
                 # Чтобы не грузить CPU/MCU. Для накопления данных.
-                time.sleep_ms(NO_LOAD_MS)
+                time.sleep_ms(SLEEP_DELAY_MS)
             finally:
                 pass
     except KeyboardInterrupt as Ex:
@@ -114,6 +105,18 @@ def gnss_rec_to_usb_bridge(buf: bytearray, interface: UART, destination: "typing
 
 
 if __name__ == "__main__":
+    timeout_ms = calc_uart_timeout(UART_BAUD_RATE, max_length=_MAX_NMEA_LENGTH_EXTENDED, safety_factor=3.0)
+    timeout_char_ms = timeout_ms // 10  # Таймаут между символами
+
+    uart = UART(
+        UART_ID,
+        baudrate=UART_BAUD_RATE,
+        rx=Pin(UART_RX_PIN),
+        tx=Pin(UART_TX_PIN),
+        rxbuf=UART_BUFFER_SIZE,
+        timeout=timeout_ms,
+        timeout_char=timeout_char_ms
+    )
     # выделяю буфер для чтения
     chunk = bytearray(BUF_CHUNK_SIZE)
     try:
