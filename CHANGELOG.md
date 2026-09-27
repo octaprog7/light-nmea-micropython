@@ -2,6 +2,17 @@
 
 All notable changes to the light_nmea project will be documented in this file.
 
+## [2.5.1] - 2026-09-27
+
+### Fixed
+- **`dash_utils.py`. `detect_format()`:** all NMEA-0183 sentences are now recognized, not only RMC/GGA/VTG/GLL. A line is classified as NMEA when it starts with `$` and carries a trailing checksum (`*HH`) or is a known sentence type; GSV/GSA and other auxiliary sentences no longer fall into `DATA_STREAM_UNKNOWN`.
+- **`dash_utils.py`. `LogWriter.write()`:** only CSV lines are written to the log directly; NMEA-0183 lines are stored via `to_csv_line()`. Unknown rows (raw GSV/GSA sentences, USB-stream fragments, `SYS_MSG`, REPL garbage) are discarded — raw NMEA can no longer mix with CSV data in `gnss_log.csv`.
+- **`dash_utils.py`. `LogWriter._open()`:** file emptiness is now checked with `os.path.getsize()` before opening (in append mode `f.tell()` is unreliable), so the CSV header is no longer duplicated when appending to an existing log.
+- **`nmea_pc_logger.py`:** log writing is fully delegated to the single `LogWriter` from `dash_utils` (own header/file-write code removed); the log format is unified to the canonical one — `timestamp` + the board's 12-field CSV. Format divergence between `nmea_pc_logger.py` and `gnss_dashboard.py` is eliminated.
+
+### Added
+- **Docs (README.md / README_RU.md):** a section explaining the `course` field (populated only while moving — gain and hold some speed for a few seconds) and a section about starting data transmission from a MicroPython board (`0x03`/`0x04` USB-stack reset codes plus a troubleshooting checklist when no data arrives).
+
 ## [2.5.0] - 2026-09-26
 
 ### Added

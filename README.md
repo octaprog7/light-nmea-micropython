@@ -360,6 +360,7 @@ light-nmea-mp/
 |-- nmea_pc_logger.py        # GNSS Data Logger - Record navigation data from a microcontroller to a CSV file
 |-- gnss_dashboard.py        # Version with extended functionality of nmea_pc_logger
 |-- visualize_gps.py         # GNSS Track Visualization Script (dependencies: pandas, folium)
+|-- gnss_rec_usb_cdc.py      # MicroPython bridge: reads everything from UART and forwards the raw NMEA-0183 stream to USB-CDC (sys.stdout). For receivers without a USB output - feeds raw NMEA into gnss_dashboard.
 |
 |-- light_nmea/              # Isolated parser package (copy to MCU)
 |   |-- __init__.py          # Python package marker
