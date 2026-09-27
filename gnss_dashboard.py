@@ -23,19 +23,16 @@ Python 3.9+, рамки и ASCII-текст.
 
 import os
 import sys
-import time
-import math
 import serial
 import curses
-import serial.tools.list_ports
-from typing import Optional, Tuple, List
-from dash_utils import (DATA_STREAM_UNKNOWN, DATA_STREAM_CSV, DATA_STREAM_NMEA_0183,
-                        detect_format, log_msg, now, format_speed, get_port_type,
-                        format_nmea_datetime)
-# импорт парсера для разбора сырого потока NMEA-0183 от GNSS-приемников с USB выходом (поток по USB-CDC)
-from light_nmea.nmea0183_parser import LightNMEA, CST_MASK_ALL
-# единая точка преобразования индексов созвездий (CST_*) и режимов фикса (FIX_*) в имена
-from light_nmea.conv_to_hrf import cst_index_to_name, fix_index_to_name, is_valid_fix_name
+from typing import Optional, List
+from dash_utils import (now, log_msg, format_speed, get_port_type, parse_args,
+                        PLACEHOLDER, SYS_MSG_PREFIX, DEFAULT_MODULE_NAME,
+                        MCU_MSG_MODULE_DETECTED, MCU_MSG_SOFTWARE_RESET,
+                        MCU_MSG_WATCHDOG_TRIGGERED, RECONNECT_DELAY_S,
+                        STATIONARY_SPEED_KMH, STATIONARY_TIME_S,
+                        MIN_POINTS_FOR_ACCURACY, _TO_KMH,
+                        GNSSData, LogWriter, AccuracyTracker, SerialParser)
 
 from typing import TYPE_CHECKING
 
@@ -53,11 +50,6 @@ if sys.version_info < (3, 9):
     sys.stderr)
     sys.exit(1)
 
-# Serial / USB
-DEFAULT_BAUDRATE = 115200 # 38400
-SERIAL_TIMEOUT_S = 0.05
-RECONNECT_DELAY_S = 2.0
-
 # UI / Curses
 UI_TIMEOUT_MS = 50
 CURSOR_VISIBLE = 0
@@ -67,52 +59,15 @@ FRAME_MARGIN = 2
 TITLE_OFFSET_X = 2
 LABEL_X_DEFAULT = 2  # Отступ метки по умолчанию (используется, если не переопределен)
 CONTENT_START_Y = 2
-PLACEHOLDER = "---"  # Заполнитель для отсутствующих значений
-
-# Максимальный размер буфера строки от MCU (защита от разрастания при мусоре без '\n')
-_MAX_BUFFER_SIZE = 4096
-# Режимы фикса, которые считаются валидными GNSS-фиксами (см. FIX_NAMES в light_nmea/conv_to_hrf.py)
 
 # Цвета
 COLOR_ERROR = 1
 COLOR_OK = 2
 
-# Компас
-FULL_CIRCLE_DEG = 360.0
-COMPASS_DIVISIONS = 8
-COMPASS_OFFSET_DEG = 22.5
-COMPASS_SECTOR_DEG = 45.0
-
-# CSV
-CSV_FIELDS_COUNT = 12
-
-# Системные сообщения от MicroPython (MCU)
-MCU_MSG_MODULE_DETECTED = 1
-MCU_MSG_SOFTWARE_RESET = 2
-MCU_MSG_WATCHDOG_TRIGGERED = 3
-#
-DEFAULT_MODULE_NAME = "Unknown"
-
 # Разделение экрана
 SPLIT_HORIZONTAL = 2
 SPLIT_VERTICAL = 2
 
-# Анализ точности
-STATIONARY_SPEED_KMH = 2.0
-STATIONARY_TIME_S = 33.3
-M_PER_DEG_LAT = 111_320.0
-MIN_POINTS_FOR_ACCURACY = 2
-
-# Для пересчета
-_TO_KMH = 1.0
-
-# Логирование
-LOG_FILENAME = 'gnss_log.csv'
-LOG_ENCODING = 'utf-8'
-LOG_TIMESTAMP_FMT = "%H:%M:%S"
-LOG_CSV_HEADER = "timestamp,valid,satellites,latitude,longitude,speed,course,altitude,time,date,constellation,fix_mode,hdop\n"
-# префикс для системных сообщений, передаваемых микроконтроллером платы, под управлением MicroPython!
-SYS_MSG_PREFIX = "SYS_MSG:"
 # Активность логирования
 LOG_ACTIVITY_TIMEOUT_S = 10.0  # Если данных нет 10 секунд - считаю неактивным
 
@@ -166,80 +121,6 @@ def ensure_terminal() -> None:
 ensure_terminal()
 
 
-# Модель данных
-class GNSSData:
-    """Одна строка данных от GNSS-приёмника."""
-    __slots__ = (
-        'valid', 'satellites', 'latitude', 'longitude',
-        'speed', 'course', 'altitude', 'time', 'date',
-        'constellation', 'fix_mode', 'hdop'
-    )
-
-    EXPECTED_FIELDS = CSV_FIELDS_COUNT
-
-    def __init__(self):
-        self.valid = ""
-        self.satellites: Optional[int] = None
-        self.latitude: Optional[float] = None
-        self.longitude: Optional[float] = None
-        self.speed: Optional[float] = None
-        self.course: Optional[float] = None
-        self.altitude: Optional[float] = None
-        self.time = ""
-        self.date = ""
-        self.constellation = ""
-        self.fix_mode = ""
-        self.hdop: Optional[float] = None
-
-    @classmethod
-    def from_csv(cls, line: str) -> 'GNSSData':
-        """Парсит CSV-строку. Выбрасывает ValueError при несовпадении числа полей."""
-        parts = line.split(',')
-        if len(parts) != cls.EXPECTED_FIELDS:
-            raise ValueError(f"Expected {cls.EXPECTED_FIELDS} fields, got {len(parts)}")
-
-        obj = cls()
-        obj.valid = parts[0]
-        obj.satellites = int(parts[1]) if parts[1] else None
-        obj.latitude = float(parts[2]) if parts[2] else None
-        obj.longitude = float(parts[3]) if parts[3] else None
-        obj.speed = float(parts[4]) if parts[4] else None
-        obj.course = float(parts[5]) if parts[5] else None
-        obj.altitude = float(parts[6]) if parts[6] else None
-        obj.time = parts[7]
-        obj.date = parts[8]
-        obj.constellation = parts[9]
-        obj.fix_mode = parts[10]
-        obj.hdop = float(parts[11]) if parts[11] else None
-        return obj
-
-    @classmethod
-    def from_parser(cls, parser: LightNMEA) -> 'GNSSData':
-        """Заполняет поля экземпляра класса информацией из полей экземпляра класса парсера"""
-        obj = cls()
-        obj.valid = parser.is_valid()
-        obj.satellites = parser.satellites if parser.satellites else None
-        obj.latitude = parser.latitude if parser.latitude else None
-        obj.longitude = parser.longitude if parser.longitude else None
-        obj.speed = parser.speed if parser.speed else None
-        obj.course = parser.course if parser.course else None
-        obj.altitude = parser.altitude if parser.altitude else None
-        obj.time = format_nmea_datetime(value=parser.time, is_time=True)
-        obj.date = format_nmea_datetime(value=parser.date, is_time=False)
-        # Парсер хранит индекс созвездия (CST_*), приводим его к имени как в CSV-потоке
-        obj.constellation = cst_index_to_name(parser.constellation)
-        obj.fix_mode = fix_index_to_name(parser.fix_mode) if parser.fix_mode is not None else ""
-        obj.hdop = parser.hdop if parser.hdop else None
-        return obj
-
-    @staticmethod
-    def compass_letter(course: float) -> str:
-        """Преобразует курс (угол в градусах) в строковое обозначение стороны света."""
-        dirs = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
-        idx = int((course % FULL_CIRCLE_DEG + COMPASS_OFFSET_DEG) / COMPASS_SECTOR_DEG) % COMPASS_DIVISIONS
-        return dirs[idx]
-
-
 class DashboardStats:
     """Статистика и текущее состояние дашборда."""
     __slots__ = (
@@ -249,6 +130,12 @@ class DashboardStats:
     )
 
     def __init__(self, port: str, baudrate: int):
+        """Инициализирует статистику и текущее состояние дашборда.
+
+        Args:
+            port: Имя последовательного порта (например, ``/dev/ttyACM0``).
+            baudrate: Скорость обмена с портом, бит/с.
+        """
         self.port = port
         self.baudrate = baudrate
         self.success = 0
@@ -264,298 +151,6 @@ class DashboardStats:
         self.last_data_time = 0.0
 
 
-class LogWriter:
-    """Запись строки GNSS-данных от платы в CSV-файл с timestamp."""
-    __slots__ = ('_file', '_filename', '_packet_count', '_is_writing')
-
-    def __init__(self, filename: str = LOG_FILENAME):
-        self._filename = filename
-        self._file = None
-        self._packet_count = 0
-        self._is_writing = False
-        self._open()
-
-    def _open(self) -> None:
-        try:
-            self._file = open(self._filename, 'a', encoding=LOG_ENCODING)
-            if self._file.tell() == 0:
-                self._file.write(LOG_CSV_HEADER)
-                self._file.flush()
-            self._is_writing = True
-        except OSError as ex:
-            log_msg(f"Error opening log {self._filename}: {ex}", sys.stderr)
-            self._file = None
-            self._is_writing = False
-
-    @property
-    def is_open(self) -> bool:
-        return self._file is not None and not self._file.closed
-
-    @property
-    def is_writing(self) -> bool:
-        return self._is_writing and self.is_open
-
-    @property
-    def lines_written(self) -> int:
-        return self._packet_count
-
-    def reset_count(self) -> None:
-        self._packet_count = 0
-
-    def write(self, raw_line: str) -> None:
-        if self._file is None or self._file.closed:
-            self._is_writing = False
-            return
-        try:
-            # UTC time
-            timestamp = time.strftime(LOG_TIMESTAMP_FMT, time.gmtime())
-            self._file.write(f"{timestamp},{raw_line}\n")
-            self._file.flush()
-            self._packet_count += 1
-            self._is_writing = True
-        except OSError as ex:
-            log_msg(f"Error writing to log: {ex}", sys.stderr)
-            self._is_writing = False
-
-    def close(self) -> None:
-        self._is_writing = False
-        if self._file is not None and not self._file.closed:
-            try:
-                self._file.close()
-            except OSError:
-                pass
-
-
-class AccuracyTracker:
-    """Расчёт точности GNSS по алгоритму Уэлфорда."""
-    __slots__ = (
-        'n', 'mean_lat', 'mean_lon', 'm2_lat', 'm2_lon',
-        'min_lat', 'max_lat', 'min_lon', 'max_lon',
-        'first_lat', 'first_lon', 'last_lat', 'last_lon',
-        'valid_fix_count', 'hdop_sum', 'hdop_count'
-    )
-
-    def __init__(self):
-        self.n = 0
-        self.mean_lat = 0.0
-        self.mean_lon = 0.0
-        self.m2_lat = 0.0
-        self.m2_lon = 0.0
-        self.min_lat: Optional[float] = None
-        self.max_lat: Optional[float] = None
-        self.min_lon: Optional[float] = None
-        self.max_lon: Optional[float] = None
-        self.first_lat: Optional[float] = None
-        self.first_lon: Optional[float] = None
-        self.last_lat: Optional[float] = None
-        self.last_lon: Optional[float] = None
-        self.valid_fix_count = 0
-        self.hdop_sum = 0.0
-        self.hdop_count = 0
-
-    def reset(self) -> None:
-        self.n = 0
-        self.mean_lat = 0.0
-        self.mean_lon = 0.0
-        self.m2_lat = 0.0
-        self.m2_lon = 0.0
-        self.min_lat = None
-        self.max_lat = None
-        self.min_lon = None
-        self.max_lon = None
-        self.first_lat = None
-        self.first_lon = None
-        self.last_lat = None
-        self.last_lon = None
-        self.valid_fix_count = 0
-        self.hdop_sum = 0.0
-        self.hdop_count = 0
-
-    def add_point(self, data: GNSSData) -> None:
-        if data.latitude is None or data.longitude is None:
-            return
-
-        lat, lon = data.latitude, data.longitude
-        self.n += 1
-
-        if self.n == 1:
-            self.first_lat = self.last_lat = lat
-            self.first_lon = self.last_lon = lon
-            self.min_lat = self.max_lat = lat
-            self.min_lon = self.max_lon = lon
-        else:
-            self.last_lat = lat
-            self.last_lon = lon
-            if lat < self.min_lat: self.min_lat = lat
-            if lat > self.max_lat: self.max_lat = lat
-            if lon < self.min_lon: self.min_lon = lon
-            if lon > self.max_lon: self.max_lon = lon
-
-        delta_lat = lat - self.mean_lat
-        delta_lon = lon - self.mean_lon
-        self.mean_lat += delta_lat / self.n
-        self.mean_lon += delta_lon / self.n
-        delta2_lat = lat - self.mean_lat
-        delta2_lon = lon - self.mean_lon
-        self.m2_lat += delta_lat * delta2_lat
-        self.m2_lon += delta_lon * delta2_lon
-
-        if is_valid_fix_name(data.fix_mode):
-            self.valid_fix_count += 1
-        if data.hdop is not None:
-            self.hdop_sum += data.hdop
-            self.hdop_count += 1
-
-    def get_metrics(self) -> Optional[dict]:
-        if self.n < MIN_POINTS_FOR_ACCURACY:
-            return None
-
-        var_lat = self.m2_lat / (self.n - 1)
-        var_lon = self.m2_lon / (self.n - 1)
-        std_lat = math.sqrt(var_lat)
-        std_lon = math.sqrt(var_lon)
-
-        lat_rad = math.radians(self.mean_lat)
-        m_per_deg_lon = M_PER_DEG_LAT * math.cos(lat_rad)
-
-        err_lat_m = std_lat * M_PER_DEG_LAT
-        err_lon_m = std_lon * m_per_deg_lon
-        err_2d_m = math.sqrt(err_lat_m ** 2 + err_lon_m ** 2)
-
-        drift_m = 0.0
-        if self.first_lat is not None and self.last_lat is not None:
-            delta_lat_m = (self.last_lat - self.first_lat) * M_PER_DEG_LAT
-            delta_lon_m = (self.last_lon - self.first_lon) * m_per_deg_lon
-            drift_m = math.sqrt(delta_lat_m ** 2 + delta_lon_m ** 2)
-
-        valid_pct = 100.0 * self.valid_fix_count / self.n if self.n > 0 else 0.0
-        avg_hdop = self.hdop_sum / self.hdop_count if self.hdop_count > 0 else 0.0
-
-        return {
-            'n': self.n,
-            'valid_pct': valid_pct,
-            'avg_hdop': avg_hdop,
-            'err_2d_m': err_2d_m,
-            'drift_m': drift_m,
-            'std_lat': std_lat,
-            'std_lon': std_lon,
-            'min_lat': self.min_lat,
-            'max_lat': self.max_lat,
-            'min_lon': self.min_lon,
-            'max_lon': self.max_lon,
-        }
-
-
-# ==============================================================================
-# ПАРСЕР ПОСЛЕДОВАТЕЛЬНОГО ПОРТА
-# ==============================================================================
-class SerialParser:
-    """Объединяет работу с serial-портом и bytearray-буфером."""
-
-    def __init__(self, port: str, baudrate: int = DEFAULT_BAUDRATE, timeout: float = SERIAL_TIMEOUT_S):
-        self.port = port
-        self.baudrate = baudrate
-        self._timeout = timeout
-        self._ser: Optional[serial.Serial] = None
-        self._buffer = bytearray()
-        self._read = None
-        self._open()
-        # создаю парсер для разбора сырого NMEA-0183 потока
-        self._raw_parser = LightNMEA(trust_gga_fix=True, enable_diagnostics=True)
-        self._raw_parser.set_cst_filter(CST_MASK_ALL)  # CST_MASK_MULTI
-
-    def _open(self) -> bool:
-        try:
-            self._ser = serial.Serial(self.port, baudrate=self.baudrate, timeout=self._timeout)
-            self._read = self._ser.read
-            #
-            ser = self._ser
-            ser.dtr = False
-            ser.rts = False
-            time.sleep(0.1)
-            # для пробуждения USB-CDC на RP2040
-            ser.dtr = True
-            ser.rts = True
-            #
-            time.sleep(0.5)
-            ser.reset_input_buffer()
-            #
-            return True
-        except serial.SerialException as ex:
-            log_msg(f"{ex}", sys.stderr)
-            self._ser = None
-            self._read = None
-            return False
-
-    def reconnect(self) -> bool:
-        self.close()
-        return self._open()
-
-    @property
-    def is_open(self) -> bool:
-        return self._ser is not None and self._ser.is_open
-
-    def close(self) -> None:
-        if self._ser is not None:
-            if self._ser.is_open:
-                try:
-                    self._ser.close()
-                except (serial.SerialException, OSError):
-                    pass
-            self._ser = None
-            self._read = None
-
-    def poll(self) -> Tuple[Optional[GNSSData], bool, Optional[str]]:
-        if not self.is_open:
-            return None, False, None
-
-        in_waiting = self._ser.in_waiting
-        if in_waiting:
-            self._buffer.extend(self._read(in_waiting))
-
-        newline_idx = self._buffer.find(b'\n')
-        if newline_idx == -1:
-            # Защита от разрастания буфера: нет '\n' в пределах лимита - это мусор, сбрасываем
-            if len(self._buffer) > _MAX_BUFFER_SIZE:
-                del self._buffer[:]
-            return None, False, None
-
-        line_bytes = self._buffer[:newline_idx]
-        del self._buffer[:newline_idx + 1]
-
-        line_str: str = line_bytes.decode('utf-8', errors='ignore').strip()
-
-        if not line_str:
-            return None, False, None
-
-        try:
-            if SYS_MSG_PREFIX in line_str:
-                return None, False, line_str
-
-            stream_format = detect_format(line_str)
-
-            if DATA_STREAM_UNKNOWN == stream_format:
-                return None, False, line_str
-
-            if DATA_STREAM_CSV == stream_format:
-                return GNSSData.from_csv(line_str), False, line_str
-
-            if DATA_STREAM_NMEA_0183 == stream_format:
-                # разбор NMEA-0183 отдельным парсером
-                raw_parser = self._raw_parser
-                if raw_parser.parse_line(line_bytes): # разбор линии сырых данных
-                    if raw_parser.has_coordinates() and raw_parser.hdop:
-                        return GNSSData.from_parser(raw_parser), False, line_str
-                # Если NMEA распарсился, но координат нет, то возвращаю None, но логирую строку
-                return None, False, line_str
-
-            # Страховка. Если формат не совпал ни с одним известным
-            return None, False, line_str
-
-        except ValueError:
-            return None, True, line_str
-
-
 # Базовый класс окна дашборда
 class BaseWindow:
     TITLE = "Window"
@@ -563,6 +158,15 @@ class BaseWindow:
     BOX_H, BOX_V = "─", "│"
 
     def __init__(self, win: 'curses.window', label_x: int = LABEL_X_DEFAULT, value_x: int = 14):
+        """Сохраняет ссылку на curses-окно и настройки раскладки.
+
+        Кэширует часто используемые методы окна для ускорения отрисовки.
+
+        Args:
+            win: Объект curses-окна, в котором рисуется панель.
+            label_x: Колонка, с которой начинаются метки.
+            value_x: Колонка, с которой выводятся значения.
+        """
         self.win = win
         self._label_x = label_x
         self._value_x = value_x
@@ -573,21 +177,40 @@ class BaseWindow:
         self._cursor_y = CONTENT_START_Y
 
     def _reset_cursor(self) -> None:
+        """Устанавливает внутренний курсор в начало контента окна."""
         self._cursor_y = CONTENT_START_Y
 
     def _draw_line(self, text: str, attr: int = 0, x: int = None) -> None:
+        """Выводит строку текста и переводит внутренний курсор на строку ниже.
+
+        Args:
+            text: Текст строки.
+            attr: Атрибуты curses для вывода.
+            x: Колонка вывода; если None, используется ``label_x``.
+        """
         draw_x = x if x is not None else self._label_x
         self._safe_addstr(self._cursor_y, draw_x, text, attr)
         self._cursor_y += 1
 
     def _draw_labeled(self, label: str, value: str, value_x: int = None, label_attr: int = curses.A_BOLD,
                       value_attr: int = 0) -> None:
+        """Выводит строку вида «метка + значение» в одной строке окна.
+
+        Args:
+            label: Текст метки.
+            value: Текст значения.
+            value_x: Колонка вывода значения; если None, используется
+                ``value_x`` экземпляра.
+            label_attr: Атрибуты curses для метки.
+            value_attr: Атрибуты curses для значения.
+        """
         vx = value_x if value_x is not None else self._value_x
         self._safe_addstr(self._cursor_y, self._label_x, label, label_attr)
         self._safe_addstr(self._cursor_y, vx, value, value_attr)
         self._cursor_y += 1
 
     def _draw_box(self) -> None:
+        """Рисует рамку окна и заголовок панели."""
         self._erase()
         max_y, max_x = self._getmaxyx()
         top = self.BOX_TL + self.BOX_H * (max_x - FRAME_MARGIN) + self.BOX_TR
@@ -613,6 +236,17 @@ class BaseWindow:
             pass
 
     def _safe_addstr(self, y: int, x: int, text: str, attr: int = 0) -> None:
+        """Выводит текст с проверкой границ окна.
+
+        Пропускает вывод, если координаты выходят за пределы окна,
+        и игнорирует исключения curses.error.
+
+        Args:
+            y: Строка вывода.
+            x: Колонка вывода.
+            text: Текст для вывода.
+            attr: Атрибуты curses.
+        """
         try:
             max_y, max_x = self._getmaxyx()
             if 0 <= y < max_y and 0 <= x < max_x:
@@ -622,19 +256,50 @@ class BaseWindow:
 
     @staticmethod
     def _fmt(value, fmt: str = "") -> str:
+        """Форматирует значение по заданному шаблону.
+
+        Пустые значения (None или пустая строка) заменяются заполнителем
+        ``PLACEHOLDER``.
+
+        Args:
+            value: Значение для форматирования.
+            fmt: Строка формата Python (например, ``".2f"``).
+
+        Returns:
+            Отформатированная строка или заполнитель ``---``.
+        """
         if value is None or value == "":
             return PLACEHOLDER
         return f"{value:{fmt}}" if fmt else str(value)
 
     def draw(self, data: GNSSData, stats: DashboardStats) -> None:
+        """Отрисовывает содержимое панели целиком.
+
+        Рисует рамку, сбрасывает курсор и вызывает переопределяемый
+        метод :meth:`_draw_content`.
+
+        Args:
+            data: Текущие данные GNSS.
+            stats: Статистика и состояние дашборда.
+        """
         self._draw_box()
         self._reset_cursor()
         self._draw_content(data, stats)
 
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
+        """Отрисовывает внутреннее содержимое панели; переопределяется подклассами.
+
+        Args:
+            data: Текущие данные GNSS.
+            stats: Статистика и состояние дашборда.
+
+        Raises:
+            NotImplementedError: если подкласс не переопределил метод.
+        """
         raise NotImplementedError
 
     def noutrefresh(self) -> None:
+        """Помечает окно для отложенного обновления экрана (без doupdate)."""
         self._noutrefresh()
 
     def _draw_conditional(self, condition: bool, true_text: str, false_text: str,
@@ -658,6 +323,12 @@ class PositionWindow(BaseWindow):
     TITLE = "Positioning"
 
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
+        """Выводит координаты, высоту и время UTC.
+
+        Args:
+            data: Текущие данные GNSS.
+            stats: Статистика и состояние дашборда.
+        """
         lat_str = f"{data.latitude:.6f}\u00B0" if data.latitude is not None else PLACEHOLDER
         lon_str = f"{data.longitude:.6f}\u00B0" if data.longitude is not None else PLACEHOLDER
         self._draw_labeled("Latitude: ", lat_str)
@@ -673,6 +344,12 @@ class GNSSWindow(BaseWindow):
     TITLE = "GNSS Parameters"
 
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
+        """Выводит параметры созвездия, число спутников, HDOP и режим фикса.
+
+        Args:
+            data: Текущие данные GNSS.
+            stats: Статистика и состояние дашборда.
+        """
         self._draw_labeled("Constellation:", self._fmt(data.constellation))
         self._draw_labeled("Satellites:   ", self._fmt(data.satellites))
         hdop_str = f"{data.hdop:.1f}" if data.hdop is not None else PLACEHOLDER
@@ -690,12 +367,27 @@ class GNSSWindow(BaseWindow):
 
 class MotionWindow(BaseWindow):
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
+        """Выбирает режим отображения: анализ точности или динамика движения.
+
+        В стационарном режиме показывает метрики точности, иначе —
+        скорость и курс.
+
+        Args:
+            data: Текущие данные GNSS.
+            stats: Статистика и состояние дашборда.
+        """
         if stats.is_stationary:
             self._draw_accuracy(stats.accuracy_tracker)
         else:
             self._draw_motion(data, stats)
 
     def _draw_motion(self, data: GNSSData, stats: DashboardStats) -> None:
+        """Выводит скорость, курс и обратный отсчёт до режима точности.
+
+        Args:
+            data: Текущие данные GNSS.
+            stats: Статистика и состояние дашборда.
+        """
         draw_window_title(self.win, "Motion Dynamics")
 
         speed_kmh = data.speed * _TO_KMH if data.speed is not None else 0.0
@@ -720,6 +412,15 @@ class MotionWindow(BaseWindow):
                 self._draw_line(f"Accuracy mode in: {int(remaining)}s", ATTR_DIM)
 
     def _draw_accuracy(self, tracker: AccuracyTracker) -> None:
+        """Выводит метрики точности позиционирования.
+
+        Показывает прогресс сбора точек, пока их меньше необходимого
+        минимума, затем — рассчитанные метрики из
+        :meth:`AccuracyTracker.get_metrics`.
+
+        Args:
+            tracker: Трекер точности с накопленной статистикой.
+        """
         draw_window_title(self.win, "Accuracy Analysis", ATTR_OK)
 
         metrics = tracker.get_metrics()
@@ -740,6 +441,12 @@ class StatusWindow(BaseWindow):
     TITLE = "Connection Status"
 
     def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
+        """Выводит состояние соединения, порт и статус логирования.
+
+        Args:
+            data: Текущие данные GNSS.
+            stats: Статистика и состояние дашборда.
+        """
         port_type = get_port_type(stats.port)
         self._draw_line(f"Port: {stats.port} ({port_type})")
         self._draw_line(f"Module: {stats.gnss_module_name}")
@@ -784,6 +491,12 @@ class Dashboard:
     RECONNECT_DELAY = RECONNECT_DELAY_S
 
     def __init__(self, stdscr: 'curses.window', parser: SerialParser):
+        """Инициализирует дашборд: данные, статистику, окна и цикл отрисовки.
+
+        Args:
+            stdscr: Главное curses-окно терминала.
+            parser: Парсер последовательного порта — источник данных.
+        """
         self.stdscr = stdscr
         self.parser = parser
         self.data = GNSSData()
@@ -800,6 +513,10 @@ class Dashboard:
         self._last_reconnect_attempt = 0.0
 
     def _configure_curses(self) -> None:
+        """Настраивает curses: скрытие курсора, неблокирующий ввод и цвета.
+
+        Инициализирует цветовые пары и глобальные атрибуты ATTR_*.
+        """
         curses.curs_set(CURSOR_VISIBLE)
         self.stdscr.nodelay(True)
         self.stdscr.timeout(UI_TIMEOUT_MS)
@@ -856,6 +573,12 @@ class Dashboard:
             self.panels.append(cls(win, label_x=lx, value_x=vx))
 
     def _handle_input(self) -> bool:
+        """Обрабатывает нажатия клавиш пользователя.
+
+        Returns:
+            True, если пользователь запросил выход (q, Q, Escape),
+            иначе False.
+        """
         key = self._getch()
         if key in (ord('q'), ord('Q'), VK_ESCAPE):
             return True
@@ -864,6 +587,14 @@ class Dashboard:
         return False
 
     def _handle_sys_message(self, raw_line: str) -> None:
+        """Обрабатывает системные сообщения от микроконтроллера (MCU).
+
+        Разбирает сообщение формата ``SYS_MSG:<тип>:<данные>`` и обновляет
+        статистику: имя модуля, счётчики программных сбросов и ошибок.
+
+        Args:
+            raw_line: Строка с системным сообщением MCU.
+        """
         start_idx = raw_line.find(SYS_MSG_PREFIX)
         if start_idx == -1:
             return
@@ -894,7 +625,12 @@ class Dashboard:
             log_msg(f"MCU: Watchdog triggered ({payload})", sys.stderr)
 
     def _try_reconnect(self) -> None:
-        current_time = now()  # <-- ЗАМЕНА
+        """Пытается переподключиться к порту с учётом задержки между попытками.
+
+        При успешном переподключении сбрасывает счётчики успехов, ошибок
+        и записанных строк.
+        """
+        current_time = now()
         if current_time - self._last_reconnect_attempt < self.RECONNECT_DELAY:
             return
         self._last_reconnect_attempt = current_time
@@ -907,15 +643,22 @@ class Dashboard:
             self.log_writer.reset_count()
 
     def _poll_serial(self) -> None:
+        """Опрашивает последовательный порт и обновляет данные и статистику.
+
+        Обрабатывает системные сообщения, логирует сырые строки, обновляет
+        счётчики и управляет переходом в режим анализа точности при
+        стационарном положении. При ошибках порта помечает соединение
+        как разорванное.
+        """
         try:
             data, is_error, raw_line = self.parser.poll()
 
             if raw_line is not None:
-                # Обработка системных сообщений или логирование сырых данных
+                # Обработка системных сообщений или логирование строк (CSV-формат)
                 if SYS_MSG_PREFIX in raw_line:
                     self._handle_sys_message(raw_line)
                 else:
-                    self.log_writer.write(raw_line)
+                    self.log_writer.write(raw_line, data)
 
             if data is not None:
                 self.data = data
@@ -944,12 +687,19 @@ class Dashboard:
             self._last_reconnect_attempt = 0
 
     def _render(self) -> None:
+        """Отрисовывает все панели и обновляет экран."""
         for panel in self.panels:
             panel.draw(self.data, self.stats)
             panel.noutrefresh()
         self._doupdate()
 
     def run(self) -> None:
+        """Запускает главный цикл дашборда.
+
+        Цикл обрабатывает ввод пользователя, опрос порта (или попытки
+        переподключения при разрыве связи) и отрисовку до выхода
+        по запросу пользователя.
+        """
         handle_input = self._handle_input
         poll_serial = self._poll_serial
         render = self._render
@@ -968,40 +718,16 @@ class Dashboard:
             pass
 
 
-# Авто определение порта для связи с платой - поставщиком данных
-def detect_port() -> str:
-    ports = serial.tools.list_ports.comports()
-    for port_info in ports:
-        device = port_info.device
-        if "ttyACM" in device or "ttyUSB" in device:
-            return device
-
-    if os.path.exists("/dev/ttyACM0"):
-        return "/dev/ttyACM0"
-    if os.path.exists("/dev/ttyUSB0"):
-        return "/dev/ttyUSB0"
-
-    raise RuntimeError("No available USB-UART ports (ttyACM* or ttyUSB*) were found.")
-
-
-def parse_args() -> Tuple[str, int]:
-    """Парсит аргументы командной строки"""
-    port = detect_port()
-    baudrate = DEFAULT_BAUDRATE
-
-    if len(sys.argv) > 1:
-        port = sys.argv[1]
-    if len(sys.argv) > 2:
-        try:
-            baudrate = int(sys.argv[2])
-        except ValueError:
-            log_msg(f"Invalid baudrate: {sys.argv[2]}", sys.stderr)
-            sys.exit(1)
-
-    return port, baudrate
-
-
 def main(stdscr: 'curses.window') -> None:
+    """Точка входа дашборда, вызываемая внутри curses.wrapper.
+
+    Перенаправляет stderr в файл ``mcu_debug.log``, создаёт парсер порта
+    и дашборд, запускает главный цикл и корректно закрывает все ресурсы
+    при выходе.
+
+    Args:
+        stdscr: Главное curses-окно терминала.
+    """
     # Перенаправляю stderr в файл
     stderr_file = open('mcu_debug.log', 'a', encoding='utf-8')
     sys.stderr = stderr_file
