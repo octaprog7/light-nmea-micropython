@@ -10,6 +10,13 @@
 
 Формат CSV: timestamp,valid,satellites,latitude,longitude,speed,course,altitude,time,date,constellation,fix_mode,hdop
 
+Запись в лог полностью передается классу ``LogWriter`` из ``dash_utils`` —
+коду записи CSV-лога, общему для nmea_pc_logger.py и gnss_dashboard.py.
+Это гарантирует одинаковый заголовок (LOG_CSV_HEADER), одинаковую временную
+метку (UTC, LOG_TIMESTAMP_FMT) и одинаковую фильтрацию: в лог попадают только
+строки CSV-формата, сырые NMEA-предложения (GSV/GSA и пр.) и обрывки USB-потока
+отбрасываются.
+
 Использование:
     1. Закройте IDE (освободите порт)
     2. Настройте COM_PORT и BAUD_RATE
@@ -22,8 +29,7 @@ import fcntl
 import serial
 import traceback
 from time import monotonic
-from datetime import datetime
-from dash_utils import DATA_STREAM_CSV, detect_format
+from dash_utils import DATA_STREAM_CSV, LOG_TIMESTAMP_FMT, LogWriter, detect_format
 
 # Библиотека pyserial на ПК и драйверы операционной системы требуют указать скорость как обязательный аргумент при открытии порта.
 # Для виртуального COM-порта (USB CDC) этот параметр полностью игнорируется контроллером USB.
@@ -45,14 +51,6 @@ def _read_until_quiet(ser: serial.Serial, quiet_delay: float = 0.3) -> None:
         if ser.read(0x100):
             last = monotonic()
     ser.timeout = old_timeout
-
-# Заголовок CSV (пробелы после запятых убраны для парсинга)
-_CSV_HEADER = "valid,satellites,latitude,longitude,speed,course,altitude,time,date,constellation,fix_mode,hdop\n"
-
-def _write_csv_header(file_obj, header: str = _CSV_HEADER):
-    """Записывает заголовок в CSV-файл и сбрасывает буфер."""
-    file_obj.write(header)
-    file_obj.flush()
 
 def _open_serial(port: str, baud: int) -> serial.Serial | None:
     """Открывает последовательный порт с обработкой ошибок.
@@ -97,7 +95,10 @@ def _open_serial(port: str, baud: int) -> serial.Serial | None:
         return None
 
 serial_dev = None
-packet_count = 0
+
+# Единая точка записи CSV-лога (класс LogWriter из dash_utils).
+# Заголовок (LOG_CSV_HEADER), временная метка (UTC) и фильтрация строк
+log_writer = LogWriter(OUTPUT_FILE)
 
 try:
     serial_dev = _open_serial(COM_PORT, BAUD_RATE)
@@ -107,45 +108,41 @@ try:
     print("Нажми Ctrl+C для остановки\n")
     print(f"Порт открыт. Пишу в {OUTPUT_FILE}")
 
-    with open(OUTPUT_FILE, 'a', encoding=STR_UTF_8_FMT) as f:
-        if f.tell() == 0:
-            _write_csv_header(f)
-
-        while True:
-            # Переподключение если порт отвалился
-            if serial_dev is None or not serial_dev.is_open:
-                print(f"Попытка переподключения к {COM_PORT}...")
-                serial_dev = _open_serial(COM_PORT, BAUD_RATE)
-                if serial_dev is None:
-                    time.sleep(_RECONNECT_DELAY)
-                    continue
-                print("Порт восстановлен\n")
-                packet_count = 0  # Сброс счётчика
-
-            try:
-                if serial_dev.in_waiting > 0:
-                    line = serial_dev.readline().decode(STR_UTF_8_FMT, errors='ignore').strip()
-                    stream_format = detect_format(line)
-                    # Вывод только для CSV формата!
-                    if DATA_STREAM_CSV == stream_format:
-                        packet_count += 1
-                        # вывод с временем получения
-                        timestamp = datetime.now().strftime("%H:%M:%S")
-                        print(f"[{timestamp}] {line}")
-                        f.write(line + "\n")
-                        f.flush()
-            except OSError as e:
-                # Обработка отвала порта
-                print(f"\nПорт отвалился: {e}")
-                print(f"Записано пакетов: {packet_count}")
-                if serial_dev and serial_dev.is_open:
-                    serial_dev.close()
-                serial_dev = None
+    while True:
+        # Переподключение если порт отвалился
+        if serial_dev is None or not serial_dev.is_open:
+            print(f"Попытка переподключения к {COM_PORT}...")
+            serial_dev = _open_serial(COM_PORT, BAUD_RATE)
+            if serial_dev is None:
                 time.sleep(_RECONNECT_DELAY)
+                continue
+            print("Порт восстановлен\n")
+            log_writer.reset_count()  # Сброс счётчика
+
+        try:
+            if serial_dev.in_waiting > 0:
+                line = serial_dev.readline().decode(STR_UTF_8_FMT, errors='ignore').strip()
+                stream_format = detect_format(line)
+                # Вывод только для CSV формата!
+                if DATA_STREAM_CSV == stream_format:
+                    # вывод с временем получения (UTC, как в dash_utils.LogWriter)
+                    timestamp = time.strftime(LOG_TIMESTAMP_FMT, time.gmtime())
+                    print(f"[{timestamp}] {line}")
+                    # Запись строго в каноническом CSV-формате:
+                    # timestamp + CSV-строка платы (см. LogWriter.write)
+                    log_writer.write(line)
+        except OSError as e:
+            # Обработка отвала порта
+            print(f"\nПорт отвалился: {e}")
+            print(f"Записано пакетов: {log_writer.lines_written}")
+            if serial_dev and serial_dev.is_open:
+                serial_dev.close()
+            serial_dev = None
+            time.sleep(_RECONNECT_DELAY)
 
 except KeyboardInterrupt:
     print(f"\n\nСтатистика:")
-    print(f"Записано пакетов: {packet_count}")
+    print(f"Записано пакетов: {log_writer.lines_written}")
     print("\n\nОстановка. Данные сохранены в", OUTPUT_FILE)
 
 except Exception as e:
@@ -153,6 +150,7 @@ except Exception as e:
     traceback.print_exc()
 
 finally:
+    log_writer.close()
     if serial_dev and serial_dev.is_open:
         serial_dev.close()
         print("Порт закрыт")

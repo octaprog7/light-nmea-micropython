@@ -105,17 +105,23 @@ def detect_format(line: str, nmea_sentences: tuple = ('RMC', 'GGA', 'VTG', 'GLL'
         0 — неизвестный тип потока,
         1 — CSV поток,
         2 — NMEA-0183 поток.
-    nmea_sentences: кортеж имен поддерживаемых типов сентенций.
+    nmea_sentences: кортеж имен «навигационных» сентенций; остальные сентенции
+        (GSV, GSA, BDS и т. п.) распознаются по контрольной сумме '*HH'.
     """
     if not line:
         return DATA_STREAM_UNKNOWN
 
-    # NMEA: $XXYYY,...
+    # NMEA-0183: строка вида $XXYYY,...*HH
     if line[0] == '$' and len(line) >= 7:
-        if line[3:6] in nmea_sentences:
+        is_known_sentence = line[3:6] in nmea_sentences
+        # У любой корректной сентенции NMEA-0183 в конце есть контрольная
+        # сумма '*HH' (позиция звёздочки = длине строки минус 3).
+        checksum_pos = line.rfind('*')
+        has_checksum = checksum_pos > 0 and checksum_pos == len(line) - 3
+        if is_known_sentence or has_checksum:
             return DATA_STREAM_NMEA_0183
 
-    # CSV: ровно 11 запятых (с префиксом [HH:MM:SS] или без)
+    # CSV: ровно 11 запятых (12 полей), без префикса '$'
     if line[0] != '$' and line.count(',') == _COMMA_COUNT_CSV:
         return DATA_STREAM_CSV
 
@@ -322,8 +328,12 @@ class LogWriter:
         в состояние «не пишем».
         """
         try:
+            # В append-режиме f.tell() не гарантирует корректную позицию,
+            # поэтому размер файла проверяем ДО открытия.
+            need_header = (not os.path.exists(self._filename)
+                           or os.path.getsize(self._filename) == 0)
             self._file = open(self._filename, 'a', encoding=LOG_ENCODING)
-            if self._file.tell() == 0:
+            if need_header:
                 self._file.write(LOG_CSV_HEADER)
                 self._file.flush()
             self._is_writing = True
@@ -384,16 +394,23 @@ class LogWriter:
         try:
             # UTC time
             timestamp = time.strftime(LOG_TIMESTAMP_FMT, time.gmtime())
-            # В лог всегда пишем строку в CSV-формате:
-            # CSV-поток — напрямую, NMEA-0183 — через распарсенные данные
+            # В лог пишем ТОЛЬКО строки в CSV-формате:
+            #   - CSV-поток платы — напрямую;
+            #   - NMEA-0183 — через распарсенные данные (to_csv_line).
+            # Сырые NMEA-предложения без полезных данных (GSV/GSA и пр.) и
+            # нераспознанные строки (обрывки USB-потока, REPL-мусор) в лог
+            # НЕ записываются, чтобы не нарушать CSV-контракт лог-файла.
             stream_format = detect_format(raw_line)
-            if DATA_STREAM_NMEA_0183 == stream_format:
+            if DATA_STREAM_CSV == stream_format:
+                record = raw_line
+            elif DATA_STREAM_NMEA_0183 == stream_format:
                 if data is None:
                     # Сентенция NMEA распарсилась, но валидных данных нет
                     return
                 record = data.to_csv_line()
             else:
-                record = raw_line
+                # Неизвестный формат — пропускаем
+                return
             self._file.write(f"{timestamp},{record}\n")
             self._file.flush()
             self._packet_count += 1

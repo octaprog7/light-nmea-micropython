@@ -424,6 +424,41 @@ Script for recording GNSS data from a microcontroller to a PC.
 pip install pyserial
 ```
 
+#### The `course` Field in the CSV Log
+
+The `course` field is populated only while the receiver is actually moving.
+GNSS modules leave the course field empty in RMC/VTG sentences when the speed
+is close to zero (standing still, noise drift), even though speed keeps
+arriving. To get the course into the log, you need to gain some speed and hold
+it for a few seconds — after that the module starts reporting a stable track
+angle (0.0-359.9°).
+
+#### Starting Data Transmission from a MicroPython Board
+
+When opening the port, the logger sends the MicroPython USB-stack reset codes:
+`0x03` (Ctrl+C — interrupts `main.py` on the board) and `0x04` (Ctrl+D — soft
+reset of the REPL); after that `main.py` restarts and starts streaming CSV to
+the PC. If no data arrives, check in order:
+
+1. **Close IDEs and terminals** (Thonny, Mu, rshell, mpremote, etc.) — the
+   port `/dev/ttyACM0` must be free, otherwise the logger reports "port already
+   in use by another process".
+2. **Make sure the bridge firmware is on the board**: copy `mpy_main.py` as
+   `main.py` to the board's filesystem root, along with the `light_nmea/` and
+   `gnss_module_utils/` folders.
+3. **If the board firmware catches KeyboardInterrupt and keeps running after
+   that** (an infinite loop instead of exiting the script), Ctrl+C (`0x03`)
+   will not stop the script — the board will not return to the REPL, and
+   Ctrl+D (`0x04`) cannot restart `main.py`. Note: data transmission actually
+   starts only after Ctrl+D (soft reset). In this case press the **Reset**
+   button on the board or re-plug the USB cable.
+4. **Check port permissions** (Linux):
+   `sudo usermod -aG dialout $USER` (log out/in afterwards).
+5. **Verify the board is visible to the system**:
+   `dmesg -T | grep -iE 'usb|acm'`.
+6. The `BAUD_RATE` setting is **ignored** for USB-CDC — the real throughput is
+   limited only by the USB bus and the MicroPython buffers.
+
 ### Hardware Setup
 
 ![Hardware Setup with Cat](assets/hardware_setup.jpg)
