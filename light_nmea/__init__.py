@@ -30,13 +30,20 @@ from light_nmea.nmea0183_parser import (
 
 from light_nmea.nmea0183_stream import NMEAStreamReader
 
-from light_nmea.conv_to_hrf import to_format, FMT_TXT, FMT_CSV, FMT_JSON, FMT_COMPACT
+from light_nmea.conv_to_hrf import (
+    to_format,
+    cst_index_to_name,
+    fix_index_to_name,
+    is_valid_fix_name,
+    FMT_TXT, FMT_CSV, FMT_JSON, FMT_COMPACT
+)
 
 __all__ = [
     'IGNSSParser',
     'LightNMEA',
     'NMEAStreamReader',
     'to_format',
+    'cst_index_to_name', 'fix_index_to_name', 'is_valid_fix_name',
     'FMT_TXT', 'FMT_CSV', 'FMT_JSON', 'FMT_COMPACT',
     'CST_UNKNOWN', 'CST_GPS', 'CST_GLONASS', 'CST_GALILEO',
     'CST_BEIDOU', 'CST_QZSS', 'CST_NAVIC', 'CST_MULTI',
