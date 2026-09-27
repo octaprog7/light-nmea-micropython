@@ -2,6 +2,17 @@
 
 All notable changes to the light_nmea project will be documented in this file.
 
+## [2.5.0] - 2026-09-26
+
+### Added
+- **Dashboard. Raw NMEA-0183 stream support:** The dashboard now parses not only the CSV stream produced by MicroPython code but also raw NMEA-0183 data from GNSS receivers with a USB output (USB-CDC). The incoming stream format is auto-detected (`DATA_STREAM_UNKNOWN` / `DATA_STREAM_CSV` / `DATA_STREAM_NMEA_0183`); raw NMEA lines are processed by the `LightNMEA` parser with the `CST_MASK_ALL` constellation filter.
+- **`light_nmea/conv_to_hrf.py`. Public index-to-name API:** added `cst_index_to_name()`, `fix_index_to_name()` and the `is_valid_fix_name()` predicate — a single source of truth for converting constellation (`CST_*`) and fix-mode (`FIX_*`) indices into human-readable names. The `_CST_NAMES` / `_FIX_NAMES` tuples are now private to the module.
+
+### Fixed
+- **Dashboard. `has_coordinates()` call in `SerialParser.poll()`:** the method was invoked without parentheses, so the condition depended only on HDOP being present. This could return stale coordinates from previous packets (e.g. after a VTG/GLL line while HDOP was still set) or drop valid RMC data before the first GGA arrived (HDOP == `None`). Coordinates are now truly required for a data row.
+- **Dashboard. Constellation display in NMEA mode:** the constellation was rendered as a numeric `CST_*` index instead of its name (e.g. `GPS`, `GLONASS`, `Galileo`); it is now converted via `cst_index_to_name()` the same way as in the CSV path.
+- **`dash_utils.py`:** removed duplicated `_FIX_NAMES` and `get_fix_name_by_index()` — the single source of fix-mode names is now `light_nmea/conv_to_hrf.py`.
+
 ## [2.4.1] - 2026-09-22
 
 ### Fixed
