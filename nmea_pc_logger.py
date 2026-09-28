@@ -10,8 +10,8 @@
 
 Формат CSV: timestamp,valid,satellites,latitude,longitude,speed,course,altitude,time,date,constellation,fix_mode,hdop
 
-Запись в лог полностью передается классу ``LogWriter`` из ``dash_utils`` —
-коду записи CSV-лога, общему для nmea_pc_logger.py и gnss_dashboard.py.
+Запись в лог полностью передана классу ``LogWriter`` из ``dash_utils``.
+Коду записи CSV-лога, общему для nmea_pc_logger.py и gnss_dashboard.py.
 Это гарантирует одинаковый заголовок (LOG_CSV_HEADER), одинаковую временную
 метку (UTC, LOG_TIMESTAMP_FMT) и одинаковую фильтрацию: в лог попадают только
 строки CSV-формата, сырые NMEA-предложения (GSV/GSA и пр.) и обрывки USB-потока

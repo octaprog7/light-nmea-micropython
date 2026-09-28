@@ -102,9 +102,9 @@ def detect_format(line: str, nmea_sentences: tuple = ('RMC', 'GGA', 'VTG', 'GLL'
     """
     Определяет тип поступающего потока:
     Возвращает:
-        0 — неизвестный тип потока,
-        1 — CSV поток,
-        2 — NMEA-0183 поток.
+        0: неизвестный тип потока,
+        1: CSV поток,
+        2: NMEA-0183 поток.
     nmea_sentences: кортеж имен «навигационных» сентенций; остальные сентенции
         (GSV, GSA, BDS и т. п.) распознаются по контрольной сумме '*HH'.
     """
@@ -270,7 +270,7 @@ class GNSSData:
 
         Формат соответствует CSV-потоку платы (см. ``_to_csv`` в
         ``light_nmea/conv_to_hrf.py``): отсутствующие значения записываются
-        пустой строкой, спутники — ``'0'``, булев ``valid`` — ``'1'``/``'0'``.
+        пустой строкой, спутники ``'0'``, булев ``valid`` ``'1'``/``'0'``.
         Используется для записи распарсенного NMEA-0183 потока в CSV-лог.
         """
         def _fmt(value) -> str:
@@ -395,8 +395,8 @@ class LogWriter:
             # UTC time
             timestamp = time.strftime(LOG_TIMESTAMP_FMT, time.gmtime())
             # В лог пишем ТОЛЬКО строки в CSV-формате:
-            #   - CSV-поток платы — напрямую;
-            #   - NMEA-0183 — через распарсенные данные (to_csv_line).
+            #   * CSV-поток платы напрямую;
+            #   * NMEA-0183 — через распарсенные данные (to_csv_line).
             # Сырые NMEA-предложения без полезных данных (GSV/GSA и пр.) и
             # нераспознанные строки (обрывки USB-потока, REPL-мусор) в лог
             # НЕ записываются, чтобы не нарушать CSV-контракт лог-файла.
@@ -409,7 +409,7 @@ class LogWriter:
                     return
                 record = data.to_csv_line()
             else:
-                # Неизвестный формат — пропускаем
+                # Неизвестный формат, пропускаю
                 return
             self._file.write(f"{timestamp},{record}\n")
             self._file.flush()
@@ -671,9 +671,9 @@ class SerialParser:
 
         Returns:
             Кортеж ``(data, is_error, raw_line)``:
-            - ``data`` — объект GNSSData при успешном разборе, иначе None;
-            - ``is_error`` — True при ошибке разбора строки (ValueError);
-            - ``raw_line`` — исходная строка для логирования, либо None.
+            - ``data``: объект GNSSData при успешном разборе, иначе None;
+            - ``is_error``: True при ошибке разбора строки (ValueError);
+            - ``raw_line``: исходная строка для логирования, либо None.
         """
         if not self.is_open:
             return None, False, None
