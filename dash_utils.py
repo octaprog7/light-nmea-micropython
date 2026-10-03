@@ -98,33 +98,80 @@ def format_speed(speed: Optional[float]) -> str:
     return f"{speed * _TO_KMH:.1f} km/h"
 
 
-def detect_format(line: str, nmea_sentences: tuple = ('RMC', 'GGA', 'VTG', 'GLL')) -> int:
-    """
-    Определяет тип поступающего потока:
-    Возвращает:
-        0: неизвестный тип потока,
-        1: CSV поток,
-        2: NMEA-0183 поток.
-    nmea_sentences: кортеж имен «навигационных» сентенций; остальные сентенции
-        (GSV, GSA, BDS и т. п.) распознаются по контрольной сумме '*HH'.
+def _is_csv(line: str, csv_fields_count : int) -> bool:
+    if not line:
+        return False
+    c0 = line[0]
+    if c0 == '$' or c0 == '!':
+        return False
+    return line.count(',') == csv_fields_count - 1
+
+
+def _is_nmea_0183(line: str) -> bool:
+    n = len(line)
+    if n < 5:
+        return False
+
+    c0 = line[0]
+    if c0 != '$' and c0 != '!':
+        return False
+
+    # отбрасываю CRLF
+    end = n
+    if line[end - 1] == '\n':
+        end -= 1
+    if end > 1 and line[end - 1] == '\r':
+        end -= 1
+
+    body = line[1:end]
+    if '\r' in body or '\n' in body:
+        return False
+
+    body_len = len(body)
+
+    # контрольная сумма *HH
+    star_pos = body.rfind('*')
+    if star_pos >= 0:
+        if star_pos + 2 >= body_len:
+            return False
+        h1 = body[star_pos + 1]
+        h2 = body[star_pos + 2]
+        if not (('0' <= h1 <= '9' or 'A' <= h1 <= 'F' or 'a' <= h1 <= 'f') and
+                ('0' <= h2 <= '9' or 'A' <= h2 <= 'F' or 'a' <= h2 <= 'f')):
+            return False
+        if star_pos + 3 != body_len:
+            return False
+        data_end = star_pos
+    else:
+        data_end = body_len
+
+    # идентификатор сентенции
+    comma_pos = body[:data_end].find(',')
+    id_end = comma_pos if comma_pos >= 0 else data_end
+
+    if id_end < 4:
+        return False
+
+    for i in range(id_end):
+        c = body[i]
+        if not (('A' <= c <= 'Z') or ('a' <= c <= 'z') or ('0' <= c <= '9')):
+            return False
+
+    return True
+
+
+def detect_format(line: str, csv_fields_count = CSV_FIELDS_COUNT) -> int:
+    """Определяет фотмат данных в line.
+        Возвращает DATA_STREAM_UNKNOWN если формат не распознан;
+        Возвращает DATA_STREAM_CSV если формат CSV 12 полей данных;
+        Возвращает DATA_STREAM_CSV если формат NMEA-0183;
     """
     if not line:
         return DATA_STREAM_UNKNOWN
-
-    # NMEA-0183: строка вида $XXYYY,...*HH
-    if line[0] == '$' and len(line) >= 7:
-        is_known_sentence = line[3:6] in nmea_sentences
-        # У любой корректной сентенции NMEA-0183 в конце есть контрольная
-        # сумма '*HH' (позиция звёздочки = длине строки минус 3).
-        checksum_pos = line.rfind('*')
-        has_checksum = checksum_pos > 0 and checksum_pos == len(line) - 3
-        if is_known_sentence or has_checksum:
-            return DATA_STREAM_NMEA_0183
-
-    # CSV: ровно 11 запятых (12 полей), без префикса '$'
-    if line[0] != '$' and line.count(',') == _COMMA_COUNT_CSV:
+    if _is_nmea_0183(line):
+        return DATA_STREAM_NMEA_0183
+    if _is_csv(line, csv_fields_count):
         return DATA_STREAM_CSV
-
     return DATA_STREAM_UNKNOWN
 
 
@@ -396,7 +443,7 @@ class LogWriter:
             timestamp = time.strftime(LOG_TIMESTAMP_FMT, time.gmtime())
             # В лог пишем ТОЛЬКО строки в CSV-формате:
             #   * CSV-поток платы напрямую;
-            #   * NMEA-0183 — через распарсенные данные (to_csv_line).
+            #   * NMEA-0183 - через распарсенные данные (to_csv_line).
             # Сырые NMEA-предложения без полезных данных (GSV/GSA и пр.) и
             # нераспознанные строки (обрывки USB-потока, REPL-мусор) в лог
             # НЕ записываются, чтобы не нарушать CSV-контракт лог-файла.
