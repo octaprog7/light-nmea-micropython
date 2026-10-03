@@ -600,6 +600,8 @@ class SerialParser:
         self._buffer = bytearray()
         self._read = None
         self._open()
+        # тип потока данных
+        self._stream_format = DATA_STREAM_UNKNOWN   # DATA_STREAM_CSV, DATA_STREAM_NMEA_0183
         # создаю парсер для разбора сырого NMEA-0183 потока
         self._raw_parser = LightNMEA(trust_gga_fix=True, enable_diagnostics=True)
         self._raw_parser.set_cst_filter(CST_MASK_ALL)  # CST_MASK_MULTI
@@ -644,6 +646,14 @@ class SerialParser:
         """
         self.close()
         return self._open()
+
+    def get_stream_format(self) -> int:
+        """Возвращает формат потока данных:
+            * DATA_STREAM_UNKNOWN = 0
+            * DATA_STREAM_CSV = 1
+            * DATA_STREAM_NMEA_0183 = 2
+        """
+        return self._stream_format
 
     @property
     def is_open(self) -> bool:
@@ -702,6 +712,8 @@ class SerialParser:
                 return None, False, line_str
 
             stream_format = detect_format(line_str)
+            # запоминаю формат потока в поле класса
+            self._stream_format = stream_format
 
             if DATA_STREAM_UNKNOWN == stream_format:
                 return None, False, line_str
@@ -723,3 +735,15 @@ class SerialParser:
 
         except ValueError:
             return None, True, line_str
+
+
+class SomeInfo:
+    """Дополнительная информация"""
+    __slots__ = (
+        'stream_format', 'field_1', 'field_2'
+    )
+
+    def __init__(self):
+        self.stream_format = 0
+        self.field_1 = 0
+        self.field_2 = 0

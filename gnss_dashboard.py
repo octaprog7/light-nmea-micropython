@@ -32,7 +32,9 @@ from dash_utils import (now, log_msg, format_speed, get_port_type, parse_args,
                         MCU_MSG_WATCHDOG_TRIGGERED, RECONNECT_DELAY_S,
                         STATIONARY_SPEED_KMH, STATIONARY_TIME_S,
                         MIN_POINTS_FOR_ACCURACY, _TO_KMH,
-                        GNSSData, LogWriter, AccuracyTracker, SerialParser)
+                        GNSSData, LogWriter, AccuracyTracker, SerialParser,
+                        SomeInfo, DATA_STREAM_UNKNOWN, DATA_STREAM_CSV, DATA_STREAM_NMEA_0183,
+                        )
 
 from typing import TYPE_CHECKING
 
@@ -272,7 +274,7 @@ class BaseWindow:
             return PLACEHOLDER
         return f"{value:{fmt}}" if fmt else str(value)
 
-    def draw(self, data: GNSSData, stats: DashboardStats) -> None:
+    def draw(self, data: GNSSData, stats: DashboardStats, info: SomeInfo) -> None:
         """Отрисовывает содержимое панели целиком.
 
         Рисует рамку, сбрасывает курсор и вызывает переопределяемый
@@ -281,12 +283,13 @@ class BaseWindow:
         Args:
             data: Текущие данные GNSS.
             stats: Статистика и состояние дашборда.
+            info: дополнительная информация
         """
         self._draw_box()
         self._reset_cursor()
-        self._draw_content(data, stats)
+        self._draw_content(data, stats, info)
 
-    def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
+    def _draw_content(self, data: GNSSData, stats: DashboardStats, info: SomeInfo) -> None:
         """Отрисовывает внутреннее содержимое панели; переопределяется подклассами.
 
         Args:
@@ -322,7 +325,7 @@ class PositionWindow(BaseWindow):
     """Окно широты и долготы"""
     TITLE = "Positioning"
 
-    def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
+    def _draw_content(self, data: GNSSData, stats: DashboardStats, info: SomeInfo) -> None:
         """Выводит координаты, высоту и время UTC.
 
         Args:
@@ -343,7 +346,7 @@ class GNSSWindow(BaseWindow):
     """Окно параметров GNSS"""
     TITLE = "GNSS Parameters"
 
-    def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
+    def _draw_content(self, data: GNSSData, stats: DashboardStats, info: SomeInfo) -> None:
         """Выводит параметры созвездия, число спутников, HDOP и режим фикса.
 
         Args:
@@ -366,7 +369,7 @@ class GNSSWindow(BaseWindow):
 
 
 class MotionWindow(BaseWindow):
-    def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
+    def _draw_content(self, data: GNSSData, stats: DashboardStats, info: SomeInfo) -> None:
         """Выбирает режим отображения: анализ точности или динамика движения.
 
         В стационарном режиме показывает метрики точности, иначе, скорость и курс.
@@ -435,11 +438,12 @@ class MotionWindow(BaseWindow):
                            value_attr=ATTR_ERROR)
         self._draw_labeled("Drift:        ", f"~{metrics['drift_m']:.2f} m")
 
+# человеко-читаемые строковые значения формата потока данных
+_FMT_STREAM = "Unknwn", "CSV", "NMEA-0183"
 
 class StatusWindow(BaseWindow):
     TITLE = "Connection Status"
-
-    def _draw_content(self, data: GNSSData, stats: DashboardStats) -> None:
+    def _draw_content(self, data: GNSSData, stats: DashboardStats, info: SomeInfo) -> None:
         """Выводит состояние соединения, порт и статус логирования.
 
         Args:
@@ -451,11 +455,11 @@ class StatusWindow(BaseWindow):
         self._draw_line(f"Module: {stats.gnss_module_name}")
         self._draw_line(f"Speed: {stats.baudrate} (USB max)")
 
-        # СТАЛО:
+        sf = info.stream_format
         self._draw_conditional(
             stats.disconnected,
             "Status: DISCONNECTED (reconnecting...)",
-            "Status: CONNECTED",
+            f"Status: CONNECTED ({_FMT_STREAM[sf]})",
             ATTR_ERROR,
             ATTR_OK
         )
@@ -499,6 +503,7 @@ class Dashboard:
         self.stdscr = stdscr
         self.parser = parser
         self.data = GNSSData()
+        self.some_info = SomeInfo()
         self.stats = DashboardStats(parser.port, parser.baudrate)
         self.stats.disconnected = not parser.is_open
         self.log_writer = LogWriter()
@@ -650,8 +655,10 @@ class Dashboard:
         как разорванное.
         """
         try:
-            data, is_error, raw_line = self.parser.poll()
-
+            data, is_error, raw_line = self.parser.poll()   # qqq_new
+            # сохраняю формат потока данных
+            self.some_info.stream_format = self.parser.get_stream_format()
+            #
             if raw_line is not None:
                 # Обработка системных сообщений или логирование строк (CSV-формат)
                 if SYS_MSG_PREFIX in raw_line:
@@ -688,7 +695,7 @@ class Dashboard:
     def _render(self) -> None:
         """Отрисовывает все панели и обновляет экран."""
         for panel in self.panels:
-            panel.draw(self.data, self.stats)
+            panel.draw(self.data, self.stats, self.some_info)
             panel.noutrefresh()
         self._doupdate()
 
