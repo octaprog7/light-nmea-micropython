@@ -2,6 +2,24 @@
 
 All notable changes to the light_nmea project will be documented in this file.
 
+## [2.6.0] — 2026-10-04
+
+### Added
+- Display data stream format (CSV/NMEA-0183) in the StatusWindow: `Status: CONNECTED (CSV/NMEA-0183)`.
+- `get_mfr_code()` function to retrieve the GNSS receiver manufacturer code from non-standard vendor-specific sentences.
+- Manufacturer code output in the StatusWindow when non-standard vendor sentences are received.
+
+### Changed
+- Replaced hardcoded Russian string messages with English equivalents. Russian-speaking users account for ~15% of the audience, so English is now the primary language for all UI and log messages.
+
+### Fixed
+- Rewrote `detect_format()` — improved reliability of NMEA-0183 stream detection.
+- Fixed issues with comments across the codebase.
+
+### Documentation
+- Improved code readability.
+
+
 ## [2.5.1] - 2026-09-27
 
 ### Fixed
