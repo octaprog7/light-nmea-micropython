@@ -364,6 +364,8 @@ light-nmea-mp/
 |
 |-- light_nmea/              # Isolated parser package (copy to MCU)
 |   |-- __init__.py          # Python package marker
+|   |-- conv_to_hrf.py       # Functions for converting parser data into various formats
+|   |-- gnss_parser_base.py  # base parser interface 
 |   |-- nmea0183_parser.py   # Parser core
 |   |-- nmea0183_stats.py    # Statistics and RAM measurement module
 |   +-- nmea0183_stream.py   # UART reader with ring buffer

@@ -392,7 +392,9 @@ light-nmea-mp/
 |-- gnss_rec_usb_cdc.py      # MicroPython-мост: читает всё, что приходит по UART, и пересылает сырой NMEA-0183 поток в USB-CDC (sys.stdout). Для приёмников без USB-выхода - питает gnss_dashboard сырым NMEA сентенциями.
 |
 |-- light_nmea/              # Изолированный пакет парсера (копировать на МК)
-|   |-- init.py          # Маркер пакета Python
+|   |-- init.py              # Маркер пакета Python
+|   |-- conv_to_hrf.py       # Функции преобразования данных парсера в различные форматы.
+|   |-- gnss_parser_base.py  # базовый интерфейс парсера
 |   |-- nmea0183_parser.py   # Ядро парсера 
 |   |-- nmea0183_stats.py    # Модуль статистики и замера RAM
 |   +-- nmea0183_stream.py   # Читатель UART с кольцевым буфером
