@@ -160,6 +160,16 @@ def _is_nmea_0183(line: str) -> bool:
     return True
 
 
+# человеко-читаемые строковые значения формата потока данных
+_FMT_STREAM = "Unknwn", "CSV", "NMEA-0183"
+
+def stream_format_by_id(id_fmt : int) -> str:
+    """Возвращает строковое наименование формата потока данных по его идентификатору,
+    возвращаемому функцией detect_format."""
+    if 0 <= id_fmt < 3:
+        return _FMT_STREAM[id_fmt]
+    return _FMT_STREAM[DATA_STREAM_UNKNOWN]
+
 def detect_format(line: str, csv_fields_count = CSV_FIELDS_COUNT) -> int:
     """Определяет фотмат данных в line.
         Возвращает DATA_STREAM_UNKNOWN если формат не распознан;
