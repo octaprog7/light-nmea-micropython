@@ -33,7 +33,8 @@ from dash_utils import (now, log_msg, format_speed, get_port_type, parse_args,
                         STATIONARY_SPEED_KMH, STATIONARY_TIME_S,
                         MIN_POINTS_FOR_ACCURACY, _TO_KMH,
                         GNSSData, LogWriter, AccuracyTracker, SerialParser,
-                        SomeInfo, DATA_STREAM_UNKNOWN, DATA_STREAM_CSV, DATA_STREAM_NMEA_0183,
+                        SomeInfo, DATA_STREAM_NMEA_0183, code_to_mfr_string,
+                        # DATA_STREAM_UNKNOWN, DATA_STREAM_CSV,
                         )
 
 from typing import TYPE_CHECKING
@@ -450,16 +451,22 @@ class StatusWindow(BaseWindow):
             data: Текущие данные GNSS.
             stats: Статистика и состояние дашборда.
         """
+        def _build_conn_str(nfo: SomeInfo) -> str:
+            base = f"Status: CONNECTED ({_FMT_STREAM[nfo.stream_format]})"
+            if 0 == nfo.mfr_code:
+                return base
+            return base + f" |{code_to_mfr_string(nfo.mfr_code)}"
+
         port_type = get_port_type(stats.port)
         self._draw_line(f"Port: {stats.port} ({port_type})")
         self._draw_line(f"Module: {stats.gnss_module_name}")
         self._draw_line(f"Speed: {stats.baudrate} (USB max)")
 
-        sf = info.stream_format
+        # sf = info.stream_format
         self._draw_conditional(
             stats.disconnected,
             "Status: DISCONNECTED (reconnecting...)",
-            f"Status: CONNECTED ({_FMT_STREAM[sf]})",
+            _build_conn_str(info),
             ATTR_ERROR,
             ATTR_OK
         )
@@ -657,7 +664,11 @@ class Dashboard:
         try:
             data, is_error, raw_line = self.parser.poll()   # qqq_new
             # сохраняю формат потока данных
-            self.some_info.stream_format = self.parser.get_stream_format()
+            si = self.some_info
+            si.stream_format = self.parser.get_stream_format()
+            # сохраняю строковое обозначение производителя GNSS приемника
+            if DATA_STREAM_NMEA_0183 == si.mfr_code:
+                si.mfr_code = self.parser.get_mfr_code()
             #
             if raw_line is not None:
                 # Обработка системных сообщений или логирование строк (CSV-формат)
