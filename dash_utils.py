@@ -195,6 +195,55 @@ def format_nmea_datetime(value: bytes | bytearray, is_time: bool = True) -> str:
     return f"{val[0:2]}.{val[2:4]}.20{val[4:six]}"
 
 
+def get_mfr_code(sentence: str) -> int:
+    """
+    Возвращает 0 для стандартной сентенции NMEA-0183, без расширений производителей.
+    Для проприетарной сентенции ($P...): 3 байта результата это ASCII-коды 3-буквенного
+    кода производителя.
+    Manufacturer (MFR) - это сокращение от Manufacturer (производитель).
+    В индустрии, связанной с GNSS/NMEA так называют 3‑х буквенный код вендора: UBX, GRM, TNL и т.д.
+
+    Пример: $PUBX,00 -> 0x554258 (UBX)
+             $PGRMZ   -> 0x47524D (GRM)
+             $PTNL    -> 0x544E4C (TNL)
+    """
+    n = len(sentence)
+    if n < 5:
+        return 0
+    if sentence[0] != '$' or sentence[1] != 'P':
+        return 0
+
+    # позиция запятой или звёздочки - конец идентификатора
+    comma_pos = sentence.find(',', 2)
+    star_pos = sentence.find('*', 2)
+
+    end = n
+    if comma_pos != -1 and (star_pos == -1 or comma_pos < star_pos):
+        end = comma_pos
+    elif star_pos != -1:
+        end = star_pos
+
+    if end < 5:  # Нужно минимум $P + 3 для символа производителя
+        return 0
+
+    # Производитель это 3 символа начиная с позиции 2
+    return (ord(sentence[2]) << 24) | (ord(sentence[3]) << 16) | (ord(sentence[4]) << 8)
+
+
+def code_to_mfr_string(code: int) -> str:
+    """Преобразует число, возвращенное get_mfr_code в строку краткого имени производителя расширения NMEA-0183:
+    'UBX', 'GRM', 'TNL'."""
+    if code == 0:
+        return ""
+
+    # Достаём три байта: старший, средний и младший
+    b1 = (code >> 16) & 0xFF
+    b2 = (code >> 8) & 0xFF
+    b3 = code & 0xFF
+
+    return chr(b1) + chr(b2) + chr(b3)
+
+
 # Авто определение порта для связи с платой - поставщиком данных
 def detect_port() -> str:
     """Автоматически определяет последовательный порт платы.
@@ -649,6 +698,8 @@ class SerialParser:
         self._open()
         # тип потока данных
         self._stream_format = DATA_STREAM_UNKNOWN   # DATA_STREAM_CSV, DATA_STREAM_NMEA_0183
+        # код производителя GNSS-приемника
+        self._mfr_code = 0
         # создаю парсер для разбора сырого NMEA-0183 потока
         self._raw_parser = LightNMEA(trust_gga_fix=True, enable_diagnostics=True)
         self._raw_parser.set_cst_filter(CST_MASK_ALL)  # CST_MASK_MULTI
@@ -701,6 +752,11 @@ class SerialParser:
             * DATA_STREAM_NMEA_0183 = 2
         """
         return self._stream_format
+
+    def get_mfr_code(self) -> int:
+        """Возвращает код производителя GNSS приемника или 0 в случае
+        если в потоке данных нет расширений формата сентенций."""
+        return self._mfr_code
 
     @property
     def is_open(self) -> bool:
@@ -761,6 +817,8 @@ class SerialParser:
             stream_format = detect_format(line_str)
             # запоминаю формат потока в поле класса
             self._stream_format = stream_format
+            # запоминаю код производителя GNSS-приемника или 0
+            self._mfr_code = get_mfr_code(line_str)
 
             if DATA_STREAM_UNKNOWN == stream_format:
                 return None, False, line_str
@@ -787,10 +845,10 @@ class SerialParser:
 class SomeInfo:
     """Дополнительная информация"""
     __slots__ = (
-        'stream_format', 'field_1', 'field_2'
+        'stream_format', 'mfr_code', 'reserved_0'
     )
 
     def __init__(self):
         self.stream_format = 0
-        self.field_1 = 0
-        self.field_2 = 0
+        self.mfr_code = 0
+        self.reserved_0 = 0
