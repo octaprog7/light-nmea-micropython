@@ -475,17 +475,17 @@ the PC. If no data arrives, check in order:
 ### Dashboard
 ![GNSS Dashboard](assets/gnss_dash_brd.png)
 
-### GNSS Track Visualization (HTML Map)
+### GNSS Track Visualization (SVG Map)
 
-Use `visualize_gnss.py` to generate interactive HTML maps from recorded GNSS logs. The script reads `gnss_log.csv` and creates a standalone HTML file with an interactive map showing the complete track.
+Use `visualize_gnss_svg.py` to generate SVG maps from recorded GNSS logs. The script reads `gnss_log.csv` and creates a standalone SVG file with an interactive map showing the complete track.
 
 #### Usage:
 
 ```bash
-# Generate HTML map from CSV log
+# Generate SVG map from CSV log
 #  input: gnss_log.csv
-#  output: gnss_track.html
-python3 visualize_gnss.py
+#  output: gnss_track.svg
+python3 visualize_gnss_svg.py
 ``` 
 ![Drift visualization](assets/drift_visualization.png)
 
