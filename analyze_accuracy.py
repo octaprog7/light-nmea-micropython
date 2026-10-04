@@ -32,18 +32,18 @@ RTK_FIXED_STR = 'RTK Fixed'
 MIN_POINTS_FOR_STD = 2
 
 # Шаблоны для вывода в консоль
-MSG_HEADER = 'Анализ точности GNSS.'
-MSG_POINTS = 'Всего точек: {0}.'
+MSG_HEADER = 'GNSS accuracy analysis.'  #'Анализ точности GNSS.'
+MSG_POINTS = 'Total points: {0}.'       # 'Всего точек: {0}.'
 MSG_RTK = 'RTK Fixed: {0} ({1:.1f}%).'
-MSG_HDOP = 'Среднее значение HDOP: {0:.2f}.'
+MSG_HDOP = 'Average HDOP value: {0:.2f}.'   # 'Среднее значение HDOP: {0:.2f}.'
 MSG_COORD = '{0}: {1:.6f} +/- {2:.6f} [{3:.6f} .. {4:.6f}].'
-MSG_ERROR_R = 'Радиус ошибки (1 sigma): ~{0:.2f} м.'
-MSG_SPAN = 'Дрейф: ~{0:.2f} м.'
+MSG_ERROR_R = 'Error radius (1 sigma): ~{0:.2f} m.'    # 'Радиус ошибки (1 sigma): ~{0:.2f} м.'
+MSG_SPAN = 'Drift: ~{0:.2f} m.' # 'Дрейф: ~{0:.2f} м.'
 
-MSG_ERR_NOT_ENOUGH = 'Ошибка: Нет данных для анализа!'
-MSG_ERR_FILE_NOT_FOUND = "Ошибка: файл '{0}' не найден!"
-MSG_ERR_ENCODING = "Ошибка: Файл '{0}' с проблемной кодировкой!"
-MSG_ERR_NO_DATA = 'Ошибка: Не найдено правильных точек данных!'
+MSG_ERR_NOT_ENOUGH = 'Error: No data for analysis!' # 'Ошибка: Нет данных для анализа!'
+MSG_ERR_FILE_NOT_FOUND = "Error: file '{0}' not found!" # "Ошибка: файл '{0}' не найден!"
+MSG_ERR_ENCODING = "Error: File '{0}' has problematic encoding!"    # "Ошибка: Файл '{0}' с проблемной кодировкой!"
+MSG_ERR_NO_DATA = '# Error: No valid data points found!'    # '# Ошибка: Не найдено правильных точек данных!'
 
 
 def analyze_log(filename: str = LOG_FILENAME):
