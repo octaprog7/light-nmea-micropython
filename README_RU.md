@@ -388,7 +388,7 @@ light-nmea-mp/
 |-- analyze_accuracy.py      # Расчет параметров точности на основе данных из файла gnss_log.txt, создаваемого скриптом nmea_pc_logger.py.
 |-- nmea_pc_logger.py        # GNSS-регистратор данных, записывает навигационные данные с микроконтроллера в CSV-файл.
 |-- gnss_dashboard.py        # Версия с расширенной функциональностью nmea_pc_logger
-|-- visualize_gps.py         # Скрипт визуализации GNSS-трека (зависимости: pandas, folium)
+|-- visualize_gnss_svg.py    # Скрипт визуализации GNSS-трека (зависимости: pandas)
 |-- gnss_rec_usb_cdc.py      # MicroPython-мост: читает всё, что приходит по UART, и пересылает сырой NMEA-0183 поток в USB-CDC (sys.stdout). Для приёмников без USB-выхода - питает gnss_dashboard сырым NMEA сентенциями.
 |
 |-- light_nmea/              # Изолированный пакет парсера (копировать на МК)
