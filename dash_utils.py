@@ -237,7 +237,7 @@ def get_mfr_code(sentence: str) -> int:
         return 0
 
     # Производитель это 3 символа начиная с позиции 2
-    return (ord(sentence[2]) << 24) | (ord(sentence[3]) << 16) | (ord(sentence[4]) << 8)
+    return (ord(sentence[2]) << 16) | (ord(sentence[3]) << 8) | ord(sentence[4])
 
 
 def code_to_mfr_string(code: int) -> str:
