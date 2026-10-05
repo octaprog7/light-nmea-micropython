@@ -34,6 +34,7 @@ from dash_utils import (now, log_msg, format_speed, get_port_type, parse_args,
                         MIN_POINTS_FOR_ACCURACY, _TO_KMH,
                         GNSSData, LogWriter, AccuracyTracker, SerialParser,
                         SomeInfo, DATA_STREAM_NMEA_0183, code_to_mfr_string,
+                        stream_format_by_id,
                         # DATA_STREAM_UNKNOWN, DATA_STREAM_CSV,
                         )
 
@@ -439,8 +440,6 @@ class MotionWindow(BaseWindow):
                            value_attr=ATTR_ERROR)
         self._draw_labeled("Drift:        ", f"~{metrics['drift_m']:.2f} m")
 
-# человеко-читаемые строковые значения формата потока данных
-_FMT_STREAM = "Unknwn", "CSV", "NMEA-0183"
 
 class StatusWindow(BaseWindow):
     TITLE = "Connection Status"
@@ -452,7 +451,7 @@ class StatusWindow(BaseWindow):
             stats: Статистика и состояние дашборда.
         """
         def _build_conn_str(nfo: SomeInfo) -> str:
-            base = f"Status: CONNECTED ({_FMT_STREAM[nfo.stream_format]})"
+            base = f"Status: CONNECTED ({stream_format_by_id(nfo.stream_format)})"
             if 0 == nfo.mfr_code:
                 return base
             return base + f" |{code_to_mfr_string(nfo.mfr_code)}"
